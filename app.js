@@ -29,16 +29,51 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.9.0";
-const SCHEMA_VERSION = 6;
+const APP_VERSION = "0.10.0";
+const SCHEMA_VERSION = 7;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
-const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings"];
+const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings", "calendar"];
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const HEATMAP_WEEKS = 12;
-const EMOJI_PRESETS = ["🌅", "🏋️", "🩹", "💧", "🧘", "🚶", "📖", "😴", "🥗", "💊", "🧊", "☀️"];
+// Thin outline icons (24×24, drawn with the current text colour). Habits store
+// the icon's name (e.g. "bed"); the picker in the habit form offers these.
+const LINE_ICONS = {
+  bed: '<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6M2 17h20"/>',
+  sunrise: '<path d="M12 2v7M4.9 10.9l1.4 1.4M2 18h2M20 18h2M19.1 10.9l-1.4 1.4M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/>',
+  heart: '<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>',
+  pill: '<path d="M10.5 20.5l10-10a5 5 0 1 0-7-7l-10 10a5 5 0 1 0 7 7z"/><path d="M8.5 8.5l7 7"/>',
+  news: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/>',
+  pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  dumbbell: '<path d="M6 6v12M18 6v12M3 9v6M21 9v6M6 12h12"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  drop: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5S12.5 5.5 12 3c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10z"/><path d="M2 21c0-3 1.9-5.4 5.1-6C9.5 14.5 12 13 13 12"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+  snow: '<path d="M12 2v20M4.9 7l14.2 10M19.1 7L4.9 17"/>',
+  walk: '<circle cx="13" cy="4" r="2"/><path d="M10 22l2-6-3-3 1-5 4 3 3 1M9 13l-3 3"/>',
+  // Used elsewhere in the UI (not offered in the habit picker)
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4.1 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22M14 14.7V17c0 .6.5 1 1 1.2 1.1.6 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0z"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/>'
+};
+const HABIT_ICON_CHOICES = ["bed", "sunrise", "heart", "pill", "news", "pulse", "dumbbell", "moon", "pen", "book", "drop", "leaf", "smile", "sun", "snow", "walk"];
+// Older versions stored emoji; the v7 upgrade maps them to line icons.
+const EMOJI_TO_ICON = {
+  "🛏️": "bed", "🌅": "sunrise", "🙏": "heart", "💊": "pill", "📰": "news", "🩹": "pulse", "🏋️": "dumbbell",
+  "🌙": "moon", "📓": "pen", "📖": "book", "💧": "drop", "🧘": "smile", "🚶": "walk", "😴": "moon",
+  "🥗": "leaf", "🧊": "snow", "☀️": "sun"
+};
+
+function lineIcon(name, cls = "") {
+  return LINE_ICONS[name] ? `<svg class="line-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${LINE_ICONS[name]}</svg>` : "";
+}
 const LEAD_IN_SECONDS = 3;
 const DEFAULT_REHAB_AREAS = [
   { id: "knee", name: "Left knee" },
@@ -161,16 +196,16 @@ function seedRoutines() {
 // find them later (finishing a routine or check-in auto-checks its habit,
 // and merges between devices match them up).
 const HABIT_DEFS = [
-  { key: "bed", name: "Make bed", icon: "🛏️" },
-  { key: "morning", name: "Morning mobility and stretching routine", icon: "🌅" },
-  { key: "gratitude", name: "Morning gratitude", icon: "🙏" },
-  { key: "supps-am", name: "Morning supplements", icon: "💊" },
-  { key: "news", name: "Read the news", icon: "📰" },
-  { key: "rehab", name: "Rehab check-in", icon: "🩹" },
-  { key: "session", name: "Today's training session", icon: "🏋️" },
-  { key: "supps-pm", name: "Evening supplements", icon: "🌙" },
-  { key: "journal", name: "Journaling", icon: "📓" },
-  { key: "book", name: "Read 1 page of a book", icon: "📖" }
+  { key: "bed", name: "Make bed", icon: "bed" },
+  { key: "morning", name: "Morning mobility and stretching routine", icon: "sunrise" },
+  { key: "gratitude", name: "Morning gratitude", icon: "heart" },
+  { key: "supps-am", name: "Morning supplements", icon: "pill" },
+  { key: "news", name: "Read the news", icon: "news" },
+  { key: "rehab", name: "Rehab check-in", icon: "pulse" },
+  { key: "session", name: "Today's training session", icon: "dumbbell" },
+  { key: "supps-pm", name: "Evening supplements", icon: "moon" },
+  { key: "journal", name: "Journaling", icon: "pen" },
+  { key: "book", name: "Read 1 page of a book", icon: "book" }
 ];
 
 function newHabit(def, now = new Date().toISOString()) {
@@ -288,6 +323,17 @@ const MIGRATIONS = {
     const iso = lower && (lower.sections || []).find((s) => s.title === "Iso block");
     if (iso) iso.title = "Iso work";
     d.schemaVersion = 6;
+  },
+  // v6 → v7: emoji habit icons become outline icons. Built-in habits get their
+  // default icon; other emoji are mapped where there's a match, else cleared
+  // (the habit then shows its first letter).
+  6: (d) => {
+    (d.habits || []).forEach((h) => {
+      const def = HABIT_DEFS.find((x) => x.key === h.key);
+      if (def && (!h.icon || EMOJI_TO_ICON[h.icon])) h.icon = def.icon;
+      else if (h.icon && !LINE_ICONS[h.icon]) h.icon = EMOJI_TO_ICON[h.icon] || "";
+    });
+    d.schemaVersion = 7;
   }
 };
 
@@ -907,14 +953,16 @@ function showTab(name) {
   for (const t of TABS) {
     document.getElementById(`tab-${t}`).hidden = t !== name;
   }
+  const navTab = name === "calendar" ? "today" : name;   // the calendar lives under Today
   document.querySelectorAll(".nav-link").forEach((a) => {
-    if (a.dataset.tab === name) a.setAttribute("aria-current", "page");
+    if (a.dataset.tab === navTab) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
   // Charts can't size themselves while hidden, so draw them when shown.
   if (name === "lifts") renderLifts();
   if (name === "rehab") renderRehab();
   if (name === "timer") renderTimerTab();
+  if (name === "calendar") renderCalendar();
   window.scrollTo(0, 0);
 }
 
@@ -1045,12 +1093,13 @@ function describeDays(h) {
 }
 
 function streakLabel(s) {
-  return s.current > 0 ? `🔥 ${s.current}-day streak` : "No streak yet";
+  return s.current > 0 ? `${s.current}-day streak` : "No streak yet";
 }
 
+// Outline icon in a quiet tile; habits without an icon show their first letter.
 function habitIconHTML(h) {
-  const icon = h.icon || h.name.trim().charAt(0).toUpperCase() || "•";
-  return `<span class="habit-icon ${h.icon ? "" : "is-letter"}" aria-hidden="true">${esc(icon)}</span>`;
+  if (LINE_ICONS[h.icon]) return `<span class="habit-icon" aria-hidden="true">${lineIcon(h.icon)}</span>`;
+  return `<span class="habit-icon is-letter" aria-hidden="true">${esc(h.name.trim().charAt(0).toUpperCase() || "•")}</span>`;
 }
 
 /* ---------- 11. Today tab ---------- */
@@ -1106,15 +1155,23 @@ function renderToday() {
 
 const DAY_RING = 2 * Math.PI * 52;   // r = 52 in the day ring's viewBox
 
-function dayProgress() {
-  const key = dateKey();
-  const due = activeHabits().filter((h) => appliesOn(h, startOfDay()));
+// Works for any date (the Calendar uses it for past days). A habit only counts
+// on days it existed: from its creation day or first check-off, whichever is earlier.
+function habitsDueOn(date, starts) {
+  const day = startOfDay(date);
+  return activeHabits().filter((h) => appliesOn(h, day) && day >= (starts ? starts.get(h.id) : firstTrackedDate(h)));
+}
+
+function dayProgress(date = new Date(), starts = null) {
+  const day = startOfDay(date);
+  const key = dateKey(day);
+  const due = habitsDueOn(day, starts);
   const habitsDone = due.filter((h) => isDone(h, key)).length;
 
   const morning = getRoutine("morning");
-  const morningDone = morning ? routineProgress(morning).finished : false;
+  const morningDone = morning ? routineProgress(morning, key).finished : false;
 
-  const id = effectiveRoutineId();
+  const id = effectiveRoutineId(day);
   const r = getRoutine(id);
   const trainingDue = id !== "rest" && !!r && sessionItems(r).length > 0;
   const liftDay = trainingDue && sessionItems(r).some((i) => i.type === "lift");
@@ -1128,7 +1185,7 @@ function dayProgress() {
   // Each habit counts once; the morning routine and each training part count once each.
   const total = due.length + (morning ? 1 : 0) + training.length;
   const done = habitsDone + (morningDone ? 1 : 0) + training.filter((p) => p.done).length;
-  return { parts, frac: total ? done / total : 0, liftDay, routineId: id };
+  return { parts, frac: total ? done / total : 0, liftDay, routineId: id, due, key };
 }
 
 // Today's training, split into parts that each have to be done:
@@ -1183,7 +1240,7 @@ function dayCardHTML(offsetOverride) {
         <circle class="day-ring-fill" id="day-ring-fill" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"
           stroke-dasharray="${DAY_RING.toFixed(2)}" stroke-dashoffset="${offset}" data-target="${(DAY_RING * (1 - p.frac)).toFixed(2)}"/>
       </svg>
-      <span class="day-ring-label"><span class="day-pct">${pct}%</span><span class="day-sub">${p.frac === 1 ? "Day done 🎉" : "of today"}</span></span>
+      <span class="day-ring-label"><span class="day-pct">${pct}%</span><span class="day-sub">${p.frac === 1 ? "Day done" : "of today"}</span></span>
     </div>
     <ul class="day-parts" aria-label="Today's progress: ${pct}%">
       ${p.parts.map((part) => `<li>
@@ -1247,7 +1304,7 @@ function todaySessionHTML() {
     </div>
     ${id !== "rest" && morning ? `
       <button class="link-row" data-start-session="morning">
-        <span>🌅 Morning mobility and stretching <span class="muted">· ${morningProgress.finished ? "done ✓" : `${morningProgress.done}/${morningProgress.total}`}</span></span>${ICONS.arrow}
+        <span class="link-row-label">${lineIcon("sunrise")}Morning mobility and stretching <span class="muted">· ${morningProgress.finished ? "done ✓" : `${morningProgress.done}/${morningProgress.total}`}</span></span>${ICONS.arrow}
       </button>` : ""}
   </section>`;
 }
@@ -1294,7 +1351,7 @@ function todayHabitMeta(h) {
 
 function progressText(done, total) {
   if (!total) return "Nothing due today";
-  return done === total ? "All done today 🎉" : `${done} of ${total} done`;
+  return done === total ? "All done today" : `${done} of ${total} done`;
 }
 
 function ringHTML(done, total) {
@@ -1588,6 +1645,7 @@ function setArchived(h, archived) {
 function habitForm(h) {
   const isSession = h && h.key === "session";
   const selected = new Set(h ? h.days : ALL_DAYS);
+  let icon = h && LINE_ICONS[h.icon] ? h.icon : "";
   const start = state.settings.scheduleStartWeekday;
   const weekOrder = ALL_DAYS.map((i) => (start + i) % 7);
 
@@ -1599,12 +1657,10 @@ function habitForm(h) {
         <input name="name" maxlength="60" autocomplete="off" value="${esc(h ? h.name : "")}" placeholder="e.g. Drink 3L of water">
       </label>
       <div class="field">
-        <span>Icon (optional)</span>
-        <div class="icon-row">
-          <input name="icon" class="icon-input" maxlength="8" autocomplete="off" value="${esc(h ? h.icon : "")}" aria-label="Icon or emoji">
-          <div class="emoji-presets">
-            ${EMOJI_PRESETS.map((e) => `<button type="button" class="emoji-btn" data-emoji="${e}" aria-label="Use ${e}">${e}</button>`).join("")}
-          </div>
+        <span>Icon</span>
+        <div class="icon-picker" role="group" aria-label="Icon">
+          <button type="button" class="icon-choice is-letter" data-icon="" aria-pressed="${!icon}" aria-label="No icon (use first letter)">Aa</button>
+          ${HABIT_ICON_CHOICES.map((name) => `<button type="button" class="icon-choice" data-icon="${name}" aria-pressed="${icon === name}" aria-label="${name}">${lineIcon(name)}</button>`).join("")}
         </div>
       </div>
       <div class="field">
@@ -1623,8 +1679,11 @@ function habitForm(h) {
           if (selected.has(d)) selected.delete(d); else selected.add(d);
           chip.setAttribute("aria-pressed", String(selected.has(d)));
         }
-        const emoji = e.target.closest(".emoji-btn");
-        if (emoji) form.elements.icon.value = emoji.dataset.emoji;
+        const choice = e.target.closest(".icon-choice");
+        if (choice) {
+          icon = choice.dataset.icon;
+          form.querySelectorAll(".icon-choice").forEach((b) => b.setAttribute("aria-pressed", String(b === choice)));
+        }
       });
     },
     read(form) {
@@ -1633,7 +1692,7 @@ function habitForm(h) {
       if (!isSession && selected.size === 0) return "Pick at least one day.";
       return {
         name,
-        icon: form.elements.icon.value.trim(),
+        icon,
         days: isSession ? (h ? h.days : ALL_DAYS.slice()) : ALL_DAYS.filter((d) => selected.has(d))
       };
     }
@@ -2543,7 +2602,7 @@ function toolTick() {
     cd.remaining = cd.total;   // ready to go again
     saveTool();
     signals.allDone();
-    toast("⏱ Timer finished");
+    toast("Timer finished");
     refreshToolViews();
   }
 
@@ -2724,7 +2783,7 @@ function countdownPaneHTML() {
       </svg>
       <div class="timer-center">
         <span class="clock-time clock-time-ring" id="tw-time">${fmtHMS(left)}</span>
-        <span class="timer-sub">${cd.running ? `🔔 ${ends}` : "Paused"}</span>
+        <span class="timer-sub">${cd.running ? `${lineIcon("bell", "inline-icon")}${ends}` : "Paused"}</span>
       </div>
     </div>
     <div class="clock-buttons">
@@ -2925,7 +2984,7 @@ async function finishWorkout() {
   renderHabits();
   const prs = workoutPRCount(w);
   toast(editing ? "Session updated"
-    : `Session saved${prs ? ` · ${plural(prs, "PR")} 🏆` : ""}${habit ? ` · “${habit.name}” checked` : ""}`);
+    : `Session saved${prs ? ` · ${plural(prs, "PR")}` : ""}${habit ? ` · “${habit.name}” checked` : ""}`);
 }
 
 async function discardWorkout(w, skipConfirm = false) {
@@ -3145,7 +3204,7 @@ function historyHTML() {
     return `${header}<button class="card history-item" data-open-workout="${esc(w.id)}">
       <span class="hist-date"><span class="hist-dow">${WEEKDAYS_SHORT[d.getDay()]}</span><span class="hist-day">${d.getDate()}</span></span>
       <span class="hist-main">
-        <span class="hist-title">${esc(workoutTitle(w))} ${prs ? `<span class="pill pill-gold">🏆 ${plural(prs, "PR")}</span>` : ""}</span>
+        <span class="hist-title">${esc(workoutTitle(w))} ${prs ? `<span class="pill pill-gold">${lineIcon("trophy", "inline-icon")}${plural(prs, "PR")}</span>` : ""}</span>
         <span class="hist-meta">${fmtDuration(new Date(w.finishedAt) - new Date(w.startedAt))} · ${plural(w.entries.length, "exercise")} · ${plural(sets, "set")}</span>
         ${meta2 ? `<span class="hist-meta hist-notes">${esc(meta2)}</span>` : ""}
       </span>
@@ -3229,7 +3288,7 @@ function progressHTML() {
         </select></label>
     </section>
     <div class="stat-grid">
-      ${tiles.map(([label, value, date]) => `<div class="stat-tile"><span class="stat-label">🏆 ${label}</span>
+      ${tiles.map(([label, value, date]) => `<div class="stat-tile"><span class="stat-label">${lineIcon("trophy", "inline-icon")}${label}</span>
         <span class="stat-value">${esc(value)}</span><span class="stat-sub">${date}</span></div>`).join("")}
     </div>
     <section class="card chart-card">
@@ -3960,6 +4019,221 @@ function onNotesKeydown(e) {
   document.getElementById("note-tag-input").focus();
 }
 
+/* ---------- 18b. Calendar (opened from the Today page) ---------- */
+// Month grid with each day's progress ring; tap a day for its checklist and logs.
+
+const calUI = { month: null, selected: null };   // month = first day of the shown month
+const MINI_RING = 2 * Math.PI * 15;               // r = 15 in the day cell's viewBox
+
+// First day there's anything to show: when the app was set up or the earliest log.
+function trackingStart() {
+  const keys = [dateKey(new Date(state.createdAt || Date.now()))];
+  keys.push(...Object.keys(state.habitLog), ...Object.keys(state.rehabLog));
+  state.workouts.forEach((w) => { if (w.finishedAt) keys.push(w.date); });
+  state.routineCompletions.forEach((c) => keys.push(c.date));
+  return parseKey(keys.sort()[0]);
+}
+
+function habitStarts() {
+  return new Map(state.habits.map((h) => [h.id, firstTrackedDate(h)]));
+}
+
+function openCalendar(key = dateKey()) {
+  calUI.selected = key;
+  const d = parseKey(key);
+  calUI.month = new Date(d.getFullYear(), d.getMonth(), 1);
+  goToTab("calendar");
+}
+
+function renderCalendar() {
+  const today = startOfDay();
+  if (!calUI.month) calUI.month = new Date(today.getFullYear(), today.getMonth(), 1);
+  if (!calUI.selected) calUI.selected = dateKey(today);
+  const start = trackingStart();
+  const starts = habitStarts();
+  const month = calUI.month;
+  const weekStart = state.settings.scheduleStartWeekday;
+  const lead = (month.getDay() - weekStart + 7) % 7;
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+
+  let cells = "";
+  for (let i = 0; i < lead; i++) cells += '<span class="cal-cell is-blank"></span>';
+  const monthFracs = [];
+  for (let n = 1; n <= daysInMonth; n++) {
+    const d = new Date(month.getFullYear(), month.getMonth(), n);
+    const key = dateKey(d);
+    const inRange = d >= start && d <= today;
+    const classes = ["cal-cell"];
+    if (sameDay(d, today)) classes.push("is-today");
+    if (key === calUI.selected) classes.push("is-selected");
+    if (!inRange) {
+      classes.push(d > today ? "is-future" : "is-before");
+      cells += `<span class="${classes.join(" ")}"><span class="cal-num">${n}</span></span>`;
+      continue;
+    }
+    const p = dayProgress(d, starts);
+    monthFracs.push(p.frac);
+    if (p.frac === 1) classes.push("is-complete");
+    cells += `<button class="${classes.join(" ")}" data-cal-day="${key}" aria-pressed="${key === calUI.selected}"
+        aria-label="${dayLabel(d)}: ${Math.round(p.frac * 100)}%">
+      <svg class="cal-ring" viewBox="0 0 36 36" aria-hidden="true">
+        <circle class="cal-ring-track" cx="18" cy="18" r="15"/>
+        <circle class="cal-ring-fill" cx="18" cy="18" r="15" transform="rotate(-90 18 18)"
+          stroke-dasharray="${MINI_RING.toFixed(2)}" stroke-dashoffset="${(MINI_RING * (1 - p.frac)).toFixed(2)}"/>
+      </svg>
+      <span class="cal-num">${n}</span>
+    </button>`;
+  }
+
+  const complete = monthFracs.filter((f) => f === 1).length;
+  const avg = monthFracs.length ? Math.round((monthFracs.reduce((a, b) => a + b, 0) / monthFracs.length) * 100) : 0;
+  const isCurrentMonth = month.getFullYear() === today.getFullYear() && month.getMonth() === today.getMonth();
+  const canGoBack = new Date(month.getFullYear(), month.getMonth(), 0) >= start;   // last day of previous month
+
+  document.getElementById("calendar-content").innerHTML = `
+    <section class="card cal-card">
+      <div class="cal-head">
+        <button class="icon-btn" data-cal-nav="-1" aria-label="Previous month" ${canGoBack ? "" : "disabled"}>${ICONS.back}</button>
+        <h2 class="cal-title">${month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
+        <button class="icon-btn" data-cal-nav="1" aria-label="Next month" ${isCurrentMonth ? "disabled" : ""}>${ICONS.arrow}</button>
+      </div>
+      <div class="cal-grid" role="grid">
+        ${ALL_DAYS.map((i) => `<span class="cal-dow">${WEEKDAYS_SHORT[(weekStart + i) % 7].charAt(0)}</span>`).join("")}
+        ${cells}
+      </div>
+      <div class="cal-foot">
+        <span class="hint">${monthFracs.length ? `${plural(complete, "day")} at 100% · average ${avg}%` : "Nothing tracked this month"}</span>
+        ${isCurrentMonth && calUI.selected === dateKey(today) ? "" : '<button class="btn btn-small" data-cal-nav="today">Today</button>'}
+      </div>
+    </section>
+    ${calendarDayHTML(parseKey(calUI.selected), starts)}`;
+}
+
+function calendarDayHTML(day, starts) {
+  const key = dateKey(day);
+  if (day > startOfDay() || day < trackingStart()) {
+    return `<section class="card empty"><p class="hint">Nothing tracked for ${dayLabel(day)}.</p></section>`;
+  }
+  const p = dayProgress(day, starts);
+  const pct = Math.round(p.frac * 100);
+  const routineId = p.routineId;
+  const overridden = !!state.sessionOverrides[key];
+
+  // Checklist: morning routine, every habit due that day (tappable), training parts.
+  const morning = getRoutine("morning");
+  const mp = morning ? routineProgress(morning, key) : null;
+  const habitRows = p.due.map((h) => `<li>
+      <button class="today-habit ${isDone(h, key) ? "done" : ""}" data-cal-habit="${esc(h.id)}" aria-pressed="${isDone(h, key)}">
+        <span class="check">${ICONS.check}</span>
+        ${habitIconHTML(h)}
+        <span class="habit-text"><span class="habit-name">${esc(h.name)}</span></span>
+      </button>
+    </li>`).join("");
+  const statusRow = (label, detail, done) => `<li class="cal-status ${done ? "done" : ""}">
+      <span class="check">${ICONS.check}</span>
+      <span class="habit-text"><span class="habit-name">${esc(label)}</span><span class="habit-meta">${esc(detail)}</span></span>
+    </li>`;
+  const trainingRows = p.parts.filter((x) => !["morning", "habits"].includes(x.id))
+    .map((x) => statusRow(x.label, x.detail, x.done)).join("");
+
+  // What was logged that day.
+  const workouts = state.workouts.filter((w) => w.finishedAt && w.date === key);
+  const rehab = state.rehabLog[key];
+  const notes = state.notes.filter((n) => dateKey(new Date(n.createdAt)) === key);
+
+  const workoutHTML = workouts.map((w) => {
+    const prs = workoutPRCount(w);
+    const lines = w.entries.map((e) => {
+      const ex = exerciseById(e.exerciseId) || { name: "Exercise", kind: "lift" };
+      const sets = e.sets.filter((s) => !s.warmup && setHasData(s)).map((s) => fmtSet(s, ex.kind)).join(" · ");
+      return `<li><span>${esc(ex.name)}</span><span class="muted">${esc(sets || "warm-ups only")}</span></li>`;
+    }).join("");
+    return `<button class="cal-log cal-log-btn" data-cal-workout="${esc(w.id)}">
+      <span class="cal-log-title">${lineIcon("dumbbell")}${esc(workoutTitle(w))} · ${fmtDuration(new Date(w.finishedAt) - new Date(w.startedAt))}
+        ${prs ? `<span class="pill pill-gold">${lineIcon("trophy", "inline-icon")}${plural(prs, "PR")}</span>` : ""}</span>
+      <ul class="cal-sets">${lines}</ul>
+      ${w.painScore != null || w.notes ? `<span class="hint">${[w.painScore != null ? `Pain ${w.painScore}/10` : "", esc(w.notes)].filter(Boolean).join(" · ")}</span>` : ""}
+    </button>`;
+  }).join("");
+
+  const rehabHTML = rehab ? `<button class="cal-log cal-log-btn" data-cal-rehab="${key}">
+      <span class="cal-log-title">${lineIcon("pulse")}Rehab check-in</span>
+      <span class="cal-scores">${state.rehabAreas.filter((a) => rehab.areas && rehab.areas[a.id] != null).map((a) =>
+        `<span>${esc(a.name)} <b class="pain-val ${painClass(rehab.areas[a.id])}">${rehab.areas[a.id]}</b></span>`).join("")}</span>
+      <span class="hint">${rehab.baseline === true ? "Back to baseline" : rehab.baseline === false ? "Not back to baseline" : "Baseline not recorded"}${rehab.note ? ` · ${esc(rehab.note)}` : ""}</span>
+    </button>` : "";
+
+  const notesHTML = notes.map((n) => `<button class="cal-log cal-log-btn" data-cal-note="${esc(n.id)}">
+      <span class="cal-log-title">${lineIcon("note")}${esc(noteTitle(n))}</span>
+      ${n.tags.length ? `<span class="note-tags">${n.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</span>` : ""}
+    </button>`).join("");
+
+  const logged = workoutHTML + rehabHTML + notesHTML;
+
+  return `<section class="card cal-day">
+    <div class="cal-day-head">
+      <div class="day-ring-wrap cal-day-ring">
+        <svg class="day-ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="day-ring-track" cx="60" cy="60" r="52"/>
+          <circle class="day-ring-fill" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"
+            stroke-dasharray="${DAY_RING.toFixed(2)}" stroke-dashoffset="${(DAY_RING * (1 - p.frac)).toFixed(2)}"/>
+        </svg>
+        <span class="day-ring-label"><span class="day-pct">${pct}%</span><span class="day-sub">${p.frac === 1 ? "Day done" : ""}</span></span>
+      </div>
+      <div>
+        <h2 class="card-title">${day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</h2>
+        <p class="hint">${esc(routineName(routineId))} day${overridden ? " (changed)" : ""}</p>
+      </div>
+    </div>
+
+    <h3 class="mini-label">Checklist</h3>
+    <ul class="today-habits cal-checklist">
+      ${morning ? statusRow("Morning mobility and stretching", mp.finished ? "Finished" : `${mp.done} of ${mp.total} ticked`, mp.finished) : ""}
+      ${habitRows}
+      ${trainingRows}
+    </ul>
+    <p class="hint cal-tip">Tap a habit to tick or untick it for this day.</p>
+
+    <h3 class="mini-label">Logged</h3>
+    ${logged || '<p class="hint">No lift session, rehab check-in or notes this day.</p>'}
+  </section>`;
+}
+
+function onCalendarClick(e) {
+  const nav = e.target.closest("[data-cal-nav]");
+  if (nav) {
+    if (nav.dataset.calNav === "today") { openCalendar(); renderCalendar(); return; }
+    const m = calUI.month;
+    calUI.month = new Date(m.getFullYear(), m.getMonth() + Number(nav.dataset.calNav), 1);
+    renderCalendar();
+    return;
+  }
+  const day = e.target.closest("[data-cal-day]");
+  if (day) { calUI.selected = day.dataset.calDay; renderCalendar(); return; }
+
+  const habit = e.target.closest("[data-cal-habit]");
+  if (habit) {
+    const key = calUI.selected;
+    const id = habit.dataset.calHabit;
+    const h = findHabit(id);
+    if (!h) return;
+    setDone(id, key, !isDone(h, key));
+    renderCalendar();
+    const fresh = document.querySelector(`[data-cal-habit="${id}"]`);
+    if (fresh && isDone(h, key)) fresh.classList.add("pop");
+    renderHabits();
+    renderToday();
+    return;
+  }
+
+  const workout = e.target.closest("[data-cal-workout]");
+  if (workout) { liftsUI.editingId = workout.dataset.calWorkout; liftsUI.view = "log"; goToTab("lifts"); return; }
+  const rehab = e.target.closest("[data-cal-rehab]");
+  if (rehab) { rehabUI.date = rehab.dataset.calRehab; rehabUI.drafts = {}; goToTab("rehab"); return; }
+  const note = e.target.closest("[data-cal-note]");
+  if (note) { notesUI.editingId = note.dataset.calNote; renderNotes(); goToTab("notes"); }
+}
+
 /* ---------- 19. Settings tab ---------- */
 
 function storageSizeLabel() {
@@ -4145,6 +4419,7 @@ function renderAll() {
   // Lifts and Rehab draw charts, so they render when visible.
   if (currentTab === "lifts") renderLifts();
   if (currentTab === "rehab") renderRehab();
+  if (currentTab === "calendar") renderCalendar();
 }
 
 // If the app stays open past midnight, roll over to the new day.
@@ -4171,6 +4446,8 @@ function init() {
   on("tool-dialog", "click", onToolClick);
   on("timer-content", "click", onToolClick);
   on("timer-content", "change", onTimerTabChange);
+  on("calendar-content", "click", onCalendarClick);
+  on("open-calendar", "click", () => openCalendar());
   on("lifts-content", "click", onLiftsClick);
   on("lifts-content", "input", onLiftsInput);
   on("lifts-content", "change", onLiftsInput);

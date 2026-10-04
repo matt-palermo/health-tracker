@@ -31,7 +31,7 @@ function New-Icon([int]$size, [string]$path, [double]$contentScale, [bool]$round
   $track = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 36, 42, 51)), $stroke
   $g.DrawEllipse($track, $ringBox)
 
-  $green = [System.Drawing.Color]::FromArgb(255, 62, 230, 143)
+  $green = [System.Drawing.Color]::FromArgb(255, 46, 155, 255)   # accent (electric blue)
   $arc = New-Object System.Drawing.Pen $green, $stroke
   $arc.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
   $arc.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
