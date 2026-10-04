@@ -29,7 +29,7 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.11.0";
 const SCHEMA_VERSION = 7;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset

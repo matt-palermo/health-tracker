@@ -4,14 +4,14 @@
    App files: network first (so edits show up right away),
    falling back to the cached copy when offline or when the
    network takes longer than NETWORK_TIMEOUT_MS.
-   Chart.js: cached once, then served from the cache (its URL
-   includes the version, so it never changes).
+   Chart.js and the Manrope font: cached once, then served from the cache (their URLs
+   include the version, so they never change).
 
    Bump CACHE_VERSION if you add or rename app files.
    Your data is NOT stored here; it's in localStorage.
    ========================================================= */
 
-const CACHE_VERSION = "tracker-v1";
+const CACHE_VERSION = "tracker-v2";
 const NETWORK_TIMEOUT_MS = 3000;
 const CHART_URL = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
 
@@ -53,7 +53,8 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  if (req.url === CHART_URL) {
+  // Chart.js and the Manrope font never change at a given URL: cache once, reuse offline.
+  if (req.url === CHART_URL || url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com") {
     event.respondWith(cacheFirst(req));
   } else if (url.origin === self.location.origin) {
     event.respondWith(networkFirst(req));
@@ -65,7 +66,8 @@ async function cacheFirst(req) {
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) cache.put(req, res.clone());
+  // "opaque" = a cross-site response the page can use but not read (e.g. the font stylesheet).
+  if (res.ok || res.type === "opaque") cache.put(req, res.clone());
   return res;
 }
 

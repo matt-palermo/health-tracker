@@ -4,7 +4,7 @@ A personal health and habit tracker: daily habits, training routines with a hold
 lift logging with progress charts, rehab check-ins and notes. Dark theme, works offline,
 installable on a phone's home screen.
 
-Plain HTML, CSS and JavaScript with no build step. The only library is Chart.js (from cdnjs).
+Plain HTML, CSS and JavaScript with no build step. The only outside resources are Chart.js (from cdnjs) and the Manrope font (Google Fonts); both are saved for offline use.
 
 ## Files
 
