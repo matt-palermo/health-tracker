@@ -35,11 +35,7 @@ const DEFAULT_ROUTINES = [
       {
         title: "Lymphatic flow",
         items: [
-          { name: "Arm circles", type: "reps", dose: "", cue: "" },
-          { name: "Bodyweight squats and lunges", type: "reps", dose: "", cue: "" },
-          { name: "Body waves", type: "reps", dose: "", cue: "" },
-          { name: "Light hops", type: "reps", dose: "", cue: "" },
-          { name: "Arm movement variations", type: "reps", dose: "", cue: "" }
+          { name: "Lymphatic flow", type: "reps", dose: "", cue: "Arm circles, bodyweight squats and lunges, body waves, light hops, arm movement variations." }
         ]
       },
       {
@@ -95,7 +91,6 @@ const DEFAULT_ROUTINES = [
     id: "lower",
     name: "Lower",
     when: "Days 2 and 5",
-    notes: "If the knee is cranky before squatting, do 1–2 wall sits first.",
     sections: [
       {
         title: "Lifts",

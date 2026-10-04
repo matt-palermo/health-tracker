@@ -29,11 +29,11 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.7.0";
-const SCHEMA_VERSION = 4;
+const APP_VERSION = "0.8.0";
+const SCHEMA_VERSION = 5;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
-const TABS = ["today", "habits", "routines", "lifts", "rehab", "notes", "settings"];
+const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings"];
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -259,6 +259,17 @@ const MIGRATIONS = {
     const rank = (h) => { const i = HABIT_DEFS.findIndex((def) => def.key === h.key); return i < 0 ? HABIT_DEFS.length : i; };
     d.habits = d.habits.map((h, i) => [h, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([h]) => h);
     d.schemaVersion = 4;
+  },
+  // v4 → v5: the morning routine's lymphatic flow section becomes one checkbox,
+  // and the Lower routine's "knee is cranky" note is removed.
+  4: (d) => {
+    const lower = (d.routines || []).find((r) => r.id === "lower");
+    if (lower && /knee is cranky/i.test(lower.notes || "")) delete lower.notes;
+    const morning = (d.routines || []).find((r) => r.id === "morning");
+    const section = morning && (morning.sections || []).find((s) => /lymphatic/i.test(s.title));
+    const def = DEFAULT_ROUTINES.find((r) => r.id === "morning").sections.find((s) => /lymphatic/i.test(s.title)).items[0];
+    if (section && section.items.length > 1) section.items = [{ id: uid(), ...clone(def) }];
+    d.schemaVersion = 5;
   }
 };
 
@@ -874,6 +885,7 @@ function showTab(name) {
   if (!TABS.includes(name)) name = "today";
   if (currentTab === "notes" && name !== "notes" && notesUI.editingId) closeNoteEditor(false);
   currentTab = name;
+  document.body.dataset.tab = name;   // lets CSS hide the ⏱ button on the Timer tab
   for (const t of TABS) {
     document.getElementById(`tab-${t}`).hidden = t !== name;
   }
@@ -884,6 +896,7 @@ function showTab(name) {
   // Charts can't size themselves while hidden, so draw them when shown.
   if (name === "lifts") renderLifts();
   if (name === "rehab") renderRehab();
+  if (name === "timer") renderTimerTab();
   window.scrollTo(0, 0);
 }
 
@@ -2167,7 +2180,7 @@ function openHoldTimer(item, onComplete) {
   const dlg = document.getElementById("timer-dialog");
   dlg.innerHTML = timerShellHTML(item);
   dlg.showModal();
-  keepAwake(true);
+  syncWakeLock();
   advanceTimer();
 }
 
@@ -2249,7 +2262,6 @@ function advanceTimer() {
     t.countdown = null;
     if (step.kind === "done") {
       signals.allDone();
-      keepAwake(false);
       if (t.onComplete) { t.onComplete(); t.onComplete = null; }
     }
     updateTimerUI();
@@ -2321,7 +2333,7 @@ function updateTimerUI() {
 function stopHoldTimer() {
   if (holdTimer && holdTimer.countdown) holdTimer.countdown.stop();
   holdTimer = null;
-  keepAwake(false);
+  syncWakeLock();   // stays on if the stopwatch or countdown is still running
 }
 
 function closeHoldTimer() {
@@ -2469,8 +2481,8 @@ function toolTick() {
     cd.remaining = cd.total;   // ready to go again
     saveTool();
     signals.allDone();
-    toast("⏱ Countdown finished");
-    if (document.getElementById("tool-dialog").open) renderTool();
+    toast("⏱ Timer finished");
+    refreshToolViews();
   }
 
   const fab = document.getElementById("timer-fab");
@@ -2494,12 +2506,13 @@ function toolTick() {
 function onToolClick(e) {
   unlockAudio();
   const mode = e.target.closest("[data-tool-mode]");
-  if (mode) { tool.mode = mode.dataset.toolMode; saveTool(); renderTool(); return; }
+  if (mode) { tool.mode = mode.dataset.toolMode; saveTool(); refreshToolViews(); return; }
   const preset = e.target.closest("[data-tool-preset]");
   if (preset) {
+    if (tool.cd.running) return;
     tool.cd.total = tool.cd.remaining = Number(preset.dataset.toolPreset) * 1000;
     saveTool();
-    renderTool();
+    refreshToolViews();
     return;
   }
   const btn = e.target.closest("[data-tool]");
@@ -2515,6 +2528,11 @@ function onToolClick(e) {
       break;
     case "sw-lap": if (sw.running && sw.laps.length < 99) sw.laps.push(swElapsed()); break;
     case "sw-reset": if (!sw.running) { sw.elapsed = 0; sw.laps = []; } break;
+    case "sw-left":   // Timer tab: one button that's Lap while running, Reset when stopped
+      if (sw.running) { if (sw.laps.length < 99) sw.laps.push(swElapsed()); }
+      else { sw.elapsed = 0; sw.laps = []; }
+      break;
+    case "cd-cancel": cd.running = false; cd.remaining = cd.total; break;
     case "cd-toggle":
       if (cd.running) { cd.remaining = cdLeft(); cd.running = false; }
       else if (cd.remaining > 0) { cd.endAt = now + cd.remaining; cd.running = true; }
@@ -2529,8 +2547,159 @@ function onToolClick(e) {
     case "cd-reset": if (!cd.running) cd.remaining = cd.total; break;
   }
   saveTool();
-  renderTool();
+  refreshToolViews();
+}
+
+// Redraw whichever timer views are showing (the ⏱ sheet and/or the Timer tab).
+function refreshToolViews() {
+  if (document.getElementById("tool-dialog").open) renderTool();
+  if (currentTab === "timer") renderTimerTab();
   toolTick();
+  syncWakeLock();
+}
+
+// Keep the screen on while any timer runs (hold timer, stopwatch or countdown).
+function syncWakeLock() {
+  keepAwake(!!holdTimer || tool.sw.running || tool.cd.running);
+}
+
+/* ---------- 15c. Timer tab (iPhone Clock style) ---------- */
+
+const TIMER_TAB_PRESETS = [60, 120, 180, 300, 600];
+let clockRaf = null;
+
+// 83456 ms -> "01:23.45" (or "1:01:23.45" past an hour), like the iPhone stopwatch.
+function fmtHundredths(ms) {
+  const cs = Math.floor(ms / 10);
+  const h = Math.floor(cs / 360000);
+  const m = Math.floor((cs % 360000) / 6000);
+  const s = Math.floor((cs % 6000) / 100);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${h ? `${h}:` : ""}${pad(m)}:${pad(s)}.${pad(cs % 100)}`;
+}
+
+// Countdown display: "4:59", or "1:04:59" past an hour.
+function fmtHMS(ms) {
+  const total = Math.ceil(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+function renderTimerTab() {
+  const isSw = tool.mode === "stopwatch";
+  document.getElementById("timer-content").innerHTML = `
+    <div class="segmented clock-modes" role="tablist" aria-label="Timer mode">
+      <button role="tab" data-tool-mode="stopwatch" aria-selected="${isSw}">Stopwatch</button>
+      <button role="tab" data-tool-mode="countdown" aria-selected="${!isSw}">Timer</button>
+    </div>
+    ${isSw ? stopwatchPaneHTML() : countdownPaneHTML()}`;
+  startClockLoop();
+}
+
+function stopwatchPaneHTML() {
+  const sw = tool.sw;
+  const elapsed = swElapsed();
+  const splits = sw.laps.map((t, i) => t - (sw.laps[i - 1] || 0));
+  // Mark fastest and slowest once there are at least two finished laps.
+  const fastest = splits.length >= 2 ? splits.indexOf(Math.min(...splits)) : -1;
+  const slowest = splits.length >= 2 ? splits.indexOf(Math.max(...splits)) : -1;
+  const lastLap = sw.laps[sw.laps.length - 1] || 0;
+
+  const rows = [];
+  if (elapsed > 0) {
+    rows.push(`<li class="lap-current"><span>Lap ${sw.laps.length + 1}</span><span id="tw-curlap">${fmtHundredths(elapsed - lastLap)}</span></li>`);
+  }
+  for (let i = splits.length - 1; i >= 0; i--) {
+    const cls = i === fastest ? "lap-fast" : i === slowest ? "lap-slow" : "";
+    rows.push(`<li class="${cls}"><span>Lap ${i + 1}</span><span>${fmtHundredths(splits[i])}</span></li>`);
+  }
+
+  return `
+    <div class="clock-face"><span class="clock-time" id="tw-time">${fmtHundredths(elapsed)}</span></div>
+    <div class="clock-buttons">
+      <button class="round-btn grey" data-tool="sw-left" ${!sw.running && !elapsed ? "disabled" : ""}>${sw.running || !elapsed ? "Lap" : "Reset"}</button>
+      <button class="round-btn ${sw.running ? "red" : "green"}" data-tool="sw-toggle">${sw.running ? "Stop" : "Start"}</button>
+    </div>
+    ${rows.length ? `<ul class="clock-laps" aria-label="Laps">${rows.join("")}</ul>` : ""}`;
+}
+
+function countdownPaneHTML() {
+  const cd = tool.cd;
+  const idle = !cd.running && cd.remaining === cd.total;
+
+  if (idle) {
+    const totalSec = Math.round(cd.total / 1000);
+    const parts = { h: Math.floor(totalSec / 3600), m: Math.floor((totalSec % 3600) / 60), s: totalSec % 60 };
+    const picker = (part, max, label) => `
+      <label class="picker-col">
+        <select data-cd-part="${part}" aria-label="${label}">
+          ${Array.from({ length: max + 1 }, (_, n) => `<option value="${n}" ${n === parts[part] ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+        <span>${label}</span>
+      </label>`;
+    return `
+      <div class="clock-picker">${picker("h", 23, "hours")}${picker("m", 59, "min")}${picker("s", 59, "sec")}</div>
+      <div class="tool-presets" role="group" aria-label="Quick times">
+        ${TIMER_TAB_PRESETS.map((s) => `<button class="tag-chip" data-tool-preset="${s}" aria-pressed="${cd.total === s * 1000}">${s / 60} min</button>`).join("")}
+      </div>
+      <div class="clock-buttons">
+        <button class="round-btn grey" disabled>Cancel</button>
+        <button class="round-btn green" data-tool="cd-toggle" ${cd.total === 0 ? "disabled" : ""}>Start</button>
+      </div>`;
+  }
+
+  const left = cdLeft();
+  const frac = cd.total ? clamp(left / cd.total, 0, 1) : 0;
+  const ends = cd.running ? new Date(cd.endAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+  return `
+    <div class="clock-ring-wrap">
+      <svg class="timer-ring" viewBox="0 0 220 220" aria-hidden="true">
+        <circle class="timer-track" cx="110" cy="110" r="100"/>
+        <circle class="timer-fill clock-fill" id="tw-ring" cx="110" cy="110" r="100" transform="rotate(-90 110 110)"
+          stroke-dasharray="${TIMER_RING.toFixed(1)}" stroke-dashoffset="${(TIMER_RING * (1 - frac)).toFixed(1)}"/>
+      </svg>
+      <div class="timer-center">
+        <span class="clock-time clock-time-ring" id="tw-time">${fmtHMS(left)}</span>
+        <span class="timer-sub">${cd.running ? `🔔 ${ends}` : "Paused"}</span>
+      </div>
+    </div>
+    <div class="clock-buttons">
+      <button class="round-btn grey" data-tool="cd-cancel">Cancel</button>
+      <button class="round-btn ${cd.running ? "orange" : "green"}" data-tool="cd-toggle">${cd.running ? "Pause" : "Resume"}</button>
+    </div>`;
+}
+
+// Smooth updates (hundredths) while the Timer tab is open and something is running.
+function startClockLoop() {
+  if (!clockRaf) clockRaf = requestAnimationFrame(clockLoop);
+}
+function clockLoop() {
+  clockRaf = null;
+  if (currentTab !== "timer") return;
+  const time = document.getElementById("tw-time");
+  if (tool.mode === "stopwatch") {
+    const elapsed = swElapsed();
+    if (time) time.textContent = fmtHundredths(elapsed);
+    const cur = document.getElementById("tw-curlap");
+    if (cur) cur.textContent = fmtHundredths(elapsed - (tool.sw.laps[tool.sw.laps.length - 1] || 0));
+  } else {
+    const left = cdLeft();
+    if (time) time.textContent = fmtHMS(left);
+    const ring = document.getElementById("tw-ring");
+    if (ring && tool.cd.total) ring.setAttribute("stroke-dashoffset", (TIMER_RING * (1 - clamp(left / tool.cd.total, 0, 1))).toFixed(1));
+  }
+  if (tool.sw.running || tool.cd.running) clockRaf = requestAnimationFrame(clockLoop);
+}
+
+// Hours/minutes/seconds pickers set the countdown length.
+function onTimerTabChange(e) {
+  if (!e.target.dataset.cdPart) return;
+  const val = (part) => Number(document.querySelector(`[data-cd-part="${part}"]`).value);
+  tool.cd.total = tool.cd.remaining = (val("h") * 3600 + val("m") * 60 + val("s")) * 1000;
+  saveTool();
+  refreshToolViews();
 }
 
 /* ---------- 16. Lifts tab ---------- */
@@ -3867,6 +4036,8 @@ function init() {
   on("rest-bar", "click", onRestClick);
   on("timer-fab", "click", openTool);
   on("tool-dialog", "click", onToolClick);
+  on("timer-content", "click", onToolClick);
+  on("timer-content", "change", onTimerTabChange);
   on("lifts-content", "click", onLiftsClick);
   on("lifts-content", "input", onLiftsInput);
   on("lifts-content", "change", onLiftsInput);
@@ -3883,7 +4054,7 @@ function init() {
   window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) flushSave();
-    else checkDayChange();
+    else { checkDayChange(); syncWakeLock(); }   // the screen lock is released while hidden
   });
   window.addEventListener("pagehide", flushSave);
   setInterval(toolTick, 250);
