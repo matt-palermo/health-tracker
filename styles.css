@@ -26,7 +26,7 @@
   --danger-soft: rgba(255, 93, 93, 0.12);
   --warning: #ffb547;
   --warning-soft: rgba(255, 181, 71, 0.12);
-  --success: #3ddc84;              /* "good" states only (pain OK, fastest lap) */
+  --success: var(--accent);        /* "good" states (pain 0–3, fastest lap) use the accent */
   --gold: #f5c451;
 
   /* Chart colors (dark steps of the validated categorical palette) */
@@ -678,7 +678,7 @@ body.no-scroll { overflow: hidden; }
 }
 .segmented button[aria-selected="true"], .segmented button[aria-pressed="true"] { background: var(--surface-3); color: var(--text); }
 .seg-yes-no { margin-bottom: 0; max-width: 260px; }
-.seg-yes-no button[aria-pressed="true"][data-baseline="yes"] { background: rgba(61, 220, 132, 0.14); color: var(--success); }
+.seg-yes-no button[aria-pressed="true"][data-baseline="yes"] { background: var(--accent-soft); color: var(--success); }
 .seg-yes-no button[aria-pressed="true"][data-baseline="no"] { background: var(--warning-soft); color: var(--warning); }
 
 .stepper { display: inline-flex; align-items: center; gap: 2px; }
