@@ -1,0 +1,13 @@
+# Claude Code local settings
+.claude/
+
+# Backups exported from the app (personal data)
+health-tracker-*.json
+
+# OS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Personal spec (kept local)
+Health App SPEC.md

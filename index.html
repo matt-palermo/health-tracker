@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="description" content="Daily habits, training routines, lift logging, rehab check-ins and notes.">
+  <title>Health Tracker</title>
+
+  <!-- Installable app (Phase 6) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tracker">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- ===== Navigation: bottom bar on phones, sidebar on wide screens ===== -->
+    <nav class="nav" aria-label="Main">
+      <div class="nav-brand">
+        <span class="brand-dot"></span>
+        <span>Health Tracker</span>
+      </div>
+
+      <a class="nav-link" href="#today" data-tab="today">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <span>Today</span>
+      </a>
+      <a class="nav-link" href="#habits" data-tab="habits">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span>Habits</span>
+      </a>
+      <a class="nav-link" href="#routines" data-tab="routines">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        <span>Routines</span>
+      </a>
+      <a class="nav-link" href="#lifts" data-tab="lifts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12M18 6v12M3 9v6M21 9v6M6 12h12"/></svg>
+        <span>Lifts</span>
+      </a>
+      <a class="nav-link" href="#rehab" data-tab="rehab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>Rehab</span>
+      </a>
+      <a class="nav-link" href="#notes" data-tab="notes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>
+        <span>Notes</span>
+      </a>
+      <a class="nav-link" href="#settings" data-tab="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        <span>Settings</span>
+      </a>
+    </nav>
+
+    <!-- ===== Tab containers (content is rendered by app.js) ===== -->
+    <main class="main">
+      <section class="tab" id="tab-today" hidden>
+        <header class="tab-header">
+          <p class="eyebrow" id="today-date"></p>
+          <h1>Today</h1>
+        </header>
+        <div id="today-content"></div>
+      </section>
+
+      <section class="tab" id="tab-habits" hidden>
+        <header class="tab-header tab-header-row">
+          <h1>Habits</h1>
+          <button class="btn btn-primary" id="add-habit">+ Add habit</button>
+        </header>
+        <div id="habits-content"></div>
+      </section>
+
+      <section class="tab" id="tab-routines" hidden>
+        <header class="tab-header"><h1>Routines</h1></header>
+        <div id="routines-content"></div>
+      </section>
+
+      <section class="tab" id="tab-lifts" hidden>
+        <header class="tab-header"><h1>Lifts</h1></header>
+        <div id="lifts-content"></div>
+      </section>
+
+      <section class="tab" id="tab-rehab" hidden>
+        <header class="tab-header"><h1>Rehab</h1></header>
+        <div id="rehab-content"></div>
+      </section>
+
+      <section class="tab" id="tab-notes" hidden>
+        <header class="tab-header"><h1>Notes</h1></header>
+        <div id="notes-content"></div>
+      </section>
+
+      <section class="tab" id="tab-settings" hidden>
+        <header class="tab-header"><h1>Settings</h1></header>
+        <div id="settings-content"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== Session mode: full-screen routine checklist ===== -->
+  <section id="session-view" class="session-view" hidden aria-label="Routine session"></section>
+
+  <!-- ===== Lift rest timer bar ===== -->
+  <div id="rest-bar" class="rest-bar" hidden></div>
+
+  <!-- ===== Hold timer ===== -->
+  <dialog id="timer-dialog" class="timer-dialog"></dialog>
+
+  <!-- ===== Shared confirm/choice dialog ===== -->
+  <dialog id="modal" class="modal">
+    <h2 class="modal-title"></h2>
+    <p class="modal-body"></p>
+    <div class="modal-actions"></div>
+  </dialog>
+
+  <!-- ===== Shared form dialog (habit, exercise, area forms) ===== -->
+  <dialog id="form-dialog" class="modal">
+    <form novalidate></form>
+  </dialog>
+
+  <!-- ===== Toast messages ===== -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Chart.js (charts in Lifts and Rehab). Needs internet the first time; the app works without it. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
