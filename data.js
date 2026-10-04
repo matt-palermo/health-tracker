@@ -59,11 +59,13 @@ const DEFAULT_ROUTINES = [
     when: "Days 1 and 4",
     sections: [
       {
-        title: "Band openers",
+        title: "Band work",
         items: [
           { name: "Band front pulls", type: "reps", dose: "", cue: "Pull the band toward your face with elbows high, squeezing your shoulder blades together." },
           { name: "Band around the worlds", type: "reps", dose: "", cue: "Hold a band wide with straight arms and bring it from your hips, over your head, to behind your back and back again. Start wide." },
-          { name: "Band rotations up and down", type: "reps", dose: "", cue: "Elbow at shoulder height and bent 90°; rotate the forearm up and down against the band." }
+          { name: "Band rotations up and down", type: "reps", dose: "", cue: "Elbow at shoulder height and bent 90°; rotate the forearm up and down against the band." },
+          { name: "Band external rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Elbow pinned to your side, bent 90°. Rotate out against the band; on the last set, hold at the end of the range." },
+          { name: "Band internal rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Same setup, facing the other way. Rotate in across your body; hold at the end of the last set." }
         ]
       },
       {
@@ -76,13 +78,6 @@ const DEFAULT_ROUTINES = [
           { name: "Trap/scapula raises", type: "lift", dose: "", cue: "" },
           { name: "Biceps", type: "lift", dose: "", cue: "" },
           { name: "Triceps (cable)", type: "lift", dose: "", cue: "" }
-        ]
-      },
-      {
-        title: "Band finisher",
-        items: [
-          { name: "Band external rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Elbow pinned to your side, bent 90°. Rotate out against the band; on the last set, hold at the end of the range." },
-          { name: "Band internal rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Same setup, facing the other way. Rotate in across your body; hold at the end of the last set." }
         ]
       }
     ]
@@ -106,7 +101,7 @@ const DEFAULT_ROUTINES = [
         ]
       },
       {
-        title: "Iso block",
+        title: "Iso work",
         items: [
           { name: "Wall sit", type: "hold", dose: "4 x 45s", holdSeconds: 45, sets: 4, cue: "Back flat against the wall, knees bent about 60–70°. Rest 1–2 min between sets." },
           { name: "Static lunge", type: "hold", dose: "3 x 30–45s/side", holdSeconds: 45, sets: 3, perSide: true, cue: "Split squat with the back knee hovering an inch off the floor. Torso tall, front heel planted." },

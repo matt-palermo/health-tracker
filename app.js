@@ -29,8 +29,8 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.8.0";
-const SCHEMA_VERSION = 5;
+const APP_VERSION = "0.9.0";
+const SCHEMA_VERSION = 6;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
 const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings"];
@@ -270,6 +270,24 @@ const MIGRATIONS = {
     const def = DEFAULT_ROUTINES.find((r) => r.id === "morning").sections.find((s) => /lymphatic/i.test(s.title)).items[0];
     if (section && section.items.length > 1) section.items = [{ id: uid(), ...clone(def) }];
     d.schemaVersion = 5;
+  },
+  // v5 → v6: Upper's band openers + finisher become one "Band work" group
+  // (items keep their IDs, so today's ticks survive); Lower's "Iso block" → "Iso work".
+  5: (d) => {
+    const upper = (d.routines || []).find((r) => r.id === "upper");
+    if (upper && Array.isArray(upper.sections)) {
+      const openers = upper.sections.find((s) => /band openers/i.test(s.title));
+      const finisher = upper.sections.find((s) => /band finisher/i.test(s.title));
+      if (openers && finisher) {
+        openers.title = "Band work";
+        openers.items = [...openers.items, ...finisher.items];
+        upper.sections = upper.sections.filter((s) => s !== finisher);
+      }
+    }
+    const lower = (d.routines || []).find((r) => r.id === "lower");
+    const iso = lower && (lower.sections || []).find((s) => s.title === "Iso block");
+    if (iso) iso.title = "Iso work";
+    d.schemaVersion = 6;
   }
 };
 
@@ -1100,18 +1118,58 @@ function dayProgress() {
   const r = getRoutine(id);
   const trainingDue = id !== "rest" && !!r && sessionItems(r).length > 0;
   const liftDay = trainingDue && sessionItems(r).some((i) => i.type === "lift");
-  const liftLogged = state.workouts.some((w) => w.finishedAt && w.date === key);
-  const trainingDone = trainingDue && (routineProgress(r).finished || (liftDay && liftLogged));
+  const training = trainingDue ? trainingParts(r, key) : [];
 
   const parts = [];
   if (morning) parts.push({ id: "morning", label: "Morning mobility", detail: morningDone ? "Done" : "Not finished", done: morningDone });
   parts.push({ id: "habits", label: "Habits", detail: `${habitsDone} of ${due.length}`, done: habitsDone === due.length });
-  if (trainingDue) {
-    parts.push({ id: "training", label: liftDay ? `Lift · ${r.name}` : r.name, detail: trainingDone ? "Done" : "Not done", done: trainingDone });
-  }
-  const total = due.length + (morning ? 1 : 0) + (trainingDue ? 1 : 0);
-  const done = habitsDone + (morningDone ? 1 : 0) + (trainingDone ? 1 : 0);
+  parts.push(...training);
+
+  // Each habit counts once; the morning routine and each training part count once each.
+  const total = due.length + (morning ? 1 : 0) + training.length;
+  const done = habitsDone + (morningDone ? 1 : 0) + training.filter((p) => p.done).length;
   return { parts, frac: total ? done / total : 0, liftDay, routineId: id };
+}
+
+// Today's training, split into parts that each have to be done:
+//  - lift days: "Lifts" (a logged lift session, or every lift ticked in the checklist)
+//    plus one part per non-lift group, e.g. "Band work" or "Iso work" (every item ticked);
+//  - other days (Active Rest): the whole checklist.
+function trainingParts(r, key) {
+  const c = findCompletion(key, r.id);
+  const ticked = new Set(c ? c.completedItemIds : []);
+  const liftItems = sessionItems(r).filter((i) => i.type === "lift");
+
+  if (!liftItems.length) {
+    const p = routineProgress(r, key);
+    const done = p.finished || (p.total > 0 && p.done === p.total);
+    return [{ id: "session", label: r.name, detail: done ? "Done" : `${p.done} of ${p.total}`, done }];
+  }
+
+  // A finished lift session today for this routine (or a blank session) counts.
+  const liftLogged = state.workouts.some((w) => w.finishedAt && w.date === key && (!w.routineId || w.routineId === r.id));
+  const liftsTicked = liftItems.filter((i) => ticked.has(i.id)).length;
+  const liftsDone = liftLogged || liftsTicked === liftItems.length;
+  const parts = [{
+    id: "lifts",
+    label: `Lifts · ${r.name}`,
+    detail: liftsDone ? (liftLogged ? "Logged" : "Done") : "Not logged yet",
+    done: liftsDone
+  }];
+  for (const s of workSections(r)) {
+    const items = s.items.filter((i) => i.type !== "info");
+    const n = items.filter((i) => ticked.has(i.id)).length;
+    parts.push({ id: "work", label: s.title, detail: `${n} of ${items.length}`, done: n === items.length });
+  }
+  return parts;
+}
+
+// Groups in a routine that aren't lifts (Band work, Iso work).
+function workSections(r) {
+  return r.sections.filter((s) => {
+    const items = s.items.filter((i) => i.type !== "info");
+    return items.length && !items.some((i) => i.type === "lift");
+  });
 }
 
 function dayCardHTML(offsetOverride) {
@@ -1154,11 +1212,9 @@ function onDayPartClick(part) {
     const card = document.querySelector(".today-habits");
     if (card) scrollToCard(card.closest(".card"));
   }
-  if (part === "training") {
-    const p = dayProgress();
-    if (p.liftDay) startOrResumeWorkout(p.routineId);
-    else openSession(p.routineId);
-  }
+  const p = dayProgress();
+  if (part === "lifts") startOrResumeWorkout(p.routineId);
+  if (part === "work" || part === "session") openSession(p.routineId);
 }
 
 function todaySessionHTML() {
@@ -2076,13 +2132,19 @@ function sessionItemHTML(it, doneIds) {
   </li>`;
 }
 
-function setSessionItem(itemId, done) {
-  if (!sessionUI.routineId) return;
-  const c = getOrCreateCompletion(sessionUI.routineId);
+// Tick or untick one routine item for today. Shared by the session checklist
+// and the band/iso cards on the Lifts screen, so both stay in sync.
+function setRoutineItemDone(routineId, itemId, done) {
+  const c = getOrCreateCompletion(routineId);
   const ids = new Set(c.completedItemIds);
   if (done) ids.add(itemId); else ids.delete(itemId);
   c.completedItemIds = [...ids];
   save();
+}
+
+function setSessionItem(itemId, done) {
+  if (!sessionUI.routineId) return;
+  setRoutineItemDone(sessionUI.routineId, itemId, done);
 
   // Patch in place so the check pops and the bar animates.
   const view = document.getElementById("session-view");
@@ -2928,8 +2990,55 @@ function startHTML() {
     </section>`;
 }
 
+// Band work / iso work checklists inside the lift logger (today's session only).
+// Groups that come before the lifts in the routine show above, the rest below.
+function workCardsFor(w) {
+  const r = !w.finishedAt && w.routineId && w.date === dateKey() ? getRoutine(w.routineId) : null;
+  if (!r) return { before: "", after: "" };
+  const firstLift = r.sections.findIndex((s) => s.items.some((i) => i.type === "lift"));
+  let before = "";
+  let after = "";
+  workSections(r).forEach((s) => {
+    const html = workCardHTML(r, s);
+    if (r.sections.indexOf(s) < firstLift) before += html; else after += html;
+  });
+  return { before, after };
+}
+
+function workCardHTML(r, s) {
+  const c = findCompletion(dateKey(), r.id);
+  const ticked = new Set(c ? c.completedItemIds : []);
+  const items = s.items.filter((i) => i.type !== "info");
+  const n = items.filter((i) => ticked.has(i.id)).length;
+  return `<section class="card work-card ${n === items.length ? "is-done" : ""}" id="work-${esc(slug(s.title))}" data-work-routine="${esc(r.id)}">
+    <div class="entry-head">
+      <h3 class="entry-name">${esc(s.title)}</h3>
+      <span class="work-count">${n === items.length ? "Done ✓" : `${n}/${items.length}`}</span>
+    </div>
+    <ul class="s-list">
+      ${items.map((it) => `<li class="s-item ${ticked.has(it.id) ? "done" : ""}">
+        <div class="s-row">
+          <button class="s-check" data-lw-check="${esc(it.id)}" aria-pressed="${ticked.has(it.id)}">
+            <span class="check">${ICONS.check}</span>
+            <span class="ex-main"><span class="ex-name">${esc(it.name)}</span>${it.dose ? `<span class="ex-dose">${esc(it.dose)}</span>` : ""}</span>
+          </button>
+          ${isTimed(it) ? `<button class="icon-btn icon-btn-accent" data-lw-timer="${esc(it.id)}" aria-label="Start timer for ${esc(it.name)}">${ICONS.clock}</button>` : ""}
+        </div>
+      </li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+function refreshWorkCard(routineId, itemId) {
+  const r = getRoutine(routineId);
+  const s = r && r.sections.find((sec) => sec.items.some((i) => i.id === itemId));
+  const card = s && document.getElementById(`work-${slug(s.title)}`);
+  if (card) card.outerHTML = workCardHTML(r, s);
+}
+
 function loggerHTML(w) {
   const editing = !!w.finishedAt;
+  const work = workCardsFor(w);
   return `
     <section class="card logger-head">
       <p class="mini-label">${editing ? "Editing past session" : "Session in progress"}</p>
@@ -2944,8 +3053,10 @@ function loggerHTML(w) {
       </div>
     </section>
 
+    ${work.before}
     ${w.entries.map((e, i) => entryHTML(w, e, i)).join("")}
     <button class="btn add-exercise-btn" data-lift="add-exercise">+ Add exercise</button>
+    ${work.after}
 
     <section class="card">
       <div class="slider-row">
@@ -3327,6 +3438,28 @@ function onLiftsClick(e) {
 
   const open = e.target.closest("[data-open-workout]");
   if (open) { liftsUI.editingId = open.dataset.openWorkout; liftsUI.view = "log"; renderLifts(); window.scrollTo(0, 0); return; }
+
+  // Band work / iso work cards
+  const workCheck = e.target.closest("[data-lw-check]");
+  if (workCheck) {
+    const routineId = workCheck.closest("[data-work-routine]").dataset.workRoutine;
+    const id = workCheck.dataset.lwCheck;
+    const nowDone = workCheck.getAttribute("aria-pressed") !== "true";
+    setRoutineItemDone(routineId, id, nowDone);
+    refreshWorkCard(routineId, id);
+    if (nowDone) {
+      const fresh = document.querySelector(`[data-lw-check="${id}"]`);
+      if (fresh) fresh.closest(".s-item").classList.add("pop");
+    }
+    return;
+  }
+  const workTimer = e.target.closest("[data-lw-timer]");
+  if (workTimer) {
+    const routineId = workTimer.closest("[data-work-routine]").dataset.workRoutine;
+    const found = findItem(workTimer.dataset.lwTimer);
+    if (found) openHoldTimer(found.item, () => { setRoutineItemDone(routineId, found.item.id, true); refreshWorkCard(routineId, found.item.id); });
+    return;
+  }
 
   const w = currentWorkout();
   if (!w) return;

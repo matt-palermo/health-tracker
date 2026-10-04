@@ -1101,6 +1101,11 @@ body[data-tab="timer"]:not(.no-scroll) .timer-fab { display: none; }   /* the ta
   font-weight: 800;
   pointer-events: none;
 }
+.work-card { padding: var(--space-3); }
+.work-card.is-done { border-color: rgba(62, 230, 143, 0.4); }
+.work-card .s-check { min-height: 52px; }
+.work-count { color: var(--text-muted); font-size: var(--fs-sm); font-weight: 650; font-variant-numeric: tabular-nums; padding-right: 4px; }
+.work-card.is-done .work-count { color: var(--accent); }
 .add-exercise-btn { width: 100%; margin: var(--space-3) 0; border-style: dashed; }
 .logger-foot { margin-top: var(--space-4); }
 .logger-foot .btn-primary { flex: 1; }
