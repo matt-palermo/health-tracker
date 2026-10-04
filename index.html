@@ -108,6 +108,13 @@
   <!-- ===== Lift rest timer bar ===== -->
   <div id="rest-bar" class="rest-bar" hidden></div>
 
+  <!-- ===== Floating stopwatch / countdown button ===== -->
+  <button id="timer-fab" class="timer-fab" aria-label="Open timer">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>
+    <span class="fab-label" id="timer-fab-label" hidden></span>
+  </button>
+  <dialog id="tool-dialog" class="timer-dialog tool-dialog"></dialog>
+
   <!-- ===== Hold timer ===== -->
   <dialog id="timer-dialog" class="timer-dialog"></dialog>
 

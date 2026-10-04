@@ -29,8 +29,8 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.6.0";
-const SCHEMA_VERSION = 3;
+const APP_VERSION = "0.7.0";
+const SCHEMA_VERSION = 4;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
 const TABS = ["today", "habits", "routines", "lifts", "rehab", "notes", "settings"];
@@ -157,15 +157,29 @@ function seedRoutines() {
   return routines;
 }
 
-// The three starter habits. `key` marks the built-in ones so the app can
-// find them later (finishing a routine or check-in auto-checks its habit).
+// Built-in habits, in the order of the day. `key` marks them so the app can
+// find them later (finishing a routine or check-in auto-checks its habit,
+// and merges between devices match them up).
+const HABIT_DEFS = [
+  { key: "bed", name: "Make bed", icon: "🛏️" },
+  { key: "morning", name: "Morning mobility and stretching routine", icon: "🌅" },
+  { key: "gratitude", name: "Morning gratitude", icon: "🙏" },
+  { key: "supps-am", name: "Morning supplements", icon: "💊" },
+  { key: "news", name: "Read the news", icon: "📰" },
+  { key: "rehab", name: "Rehab check-in", icon: "🩹" },
+  { key: "session", name: "Today's training session", icon: "🏋️" },
+  { key: "supps-pm", name: "Evening supplements", icon: "🌙" },
+  { key: "journal", name: "Journaling", icon: "📓" },
+  { key: "book", name: "Read 1 page of a book", icon: "📖" }
+];
+
+function newHabit(def, now = new Date().toISOString()) {
+  return { id: uid(), ...def, days: ALL_DAYS.slice(), archived: false, createdAt: now };
+}
+
 function defaultHabits() {
   const now = new Date().toISOString();
-  return [
-    { id: uid(), key: "morning", name: "Morning routine", icon: "🌅", days: ALL_DAYS.slice(), archived: false, createdAt: now },
-    { id: uid(), key: "session", name: "Today's session", icon: "🏋️", days: ALL_DAYS.slice(), archived: false, createdAt: now },
-    { id: uid(), key: "rehab", name: "Rehab check-in", icon: "🩹", days: ALL_DAYS.slice(), archived: false, createdAt: now }
-  ];
+  return HABIT_DEFS.map((def) => newHabit(def, now));
 }
 
 // Guess how an exercise is logged from its name.
@@ -223,6 +237,28 @@ const MIGRATIONS = {
     }
     if (!Array.isArray(d.rehabAreas)) d.rehabAreas = clone(DEFAULT_REHAB_AREAS);
     d.schemaVersion = 3;
+  },
+  // v3 → v4: full daily habit list, renamed built-ins, habits in order of the day.
+  3: (d) => {
+    if (!Array.isArray(d.habits)) d.habits = [];
+    const byKey = (k) => d.habits.find((h) => h.key === k);
+    const renames = { morning: ["Morning routine", "Morning mobility and stretching routine"], session: ["Today's session", "Today's training session"] };
+    for (const [key, [oldName, newName]] of Object.entries(renames)) {
+      const h = byKey(key);
+      if (h && h.name === oldName) h.name = newName;   // only if you hadn't renamed it yourself
+    }
+    const now = new Date().toISOString();
+    for (const def of HABIT_DEFS) {
+      if (byKey(def.key)) continue;
+      // A habit you already made with the same name becomes the built-in one.
+      const same = d.habits.find((h) => !h.key && String(h.name).trim().toLowerCase() === def.name.toLowerCase());
+      if (same) same.key = def.key;
+      else d.habits.push(newHabit(def, now));
+    }
+    // Built-ins in order of the day; any other habits keep their order after them.
+    const rank = (h) => { const i = HABIT_DEFS.findIndex((def) => def.key === h.key); return i < 0 ? HABIT_DEFS.length : i; };
+    d.habits = d.habits.map((h, i) => [h, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([h]) => h);
+    d.schemaVersion = 4;
   }
 };
 
@@ -1010,6 +1046,7 @@ function renderToday() {
   const active = activeWorkout();
   const needsCheckIn = !state.rehabLog[dateKey()] && state.rehabAreas.length > 0;
   document.getElementById("today-content").innerHTML = `
+    ${dayCardHTML()}
     ${pain !== null && pain > 3 ? `
       <section class="card alert-card" role="alert">
         <h2 class="card-title">${ICONS.alert}Pain was ${pain}/10 today</h2>
@@ -1032,6 +1069,85 @@ function renderToday() {
   `;
 }
 
+// --- Whole-day progress: morning routine + every habit due + training ---
+// Only reaches 100% when the morning routine session is finished, every
+// habit due today is ticked, and today's training is done.
+
+const DAY_RING = 2 * Math.PI * 52;   // r = 52 in the day ring's viewBox
+
+function dayProgress() {
+  const key = dateKey();
+  const due = activeHabits().filter((h) => appliesOn(h, startOfDay()));
+  const habitsDone = due.filter((h) => isDone(h, key)).length;
+
+  const morning = getRoutine("morning");
+  const morningDone = morning ? routineProgress(morning).finished : false;
+
+  const id = effectiveRoutineId();
+  const r = getRoutine(id);
+  const trainingDue = id !== "rest" && !!r && sessionItems(r).length > 0;
+  const liftDay = trainingDue && sessionItems(r).some((i) => i.type === "lift");
+  const liftLogged = state.workouts.some((w) => w.finishedAt && w.date === key);
+  const trainingDone = trainingDue && (routineProgress(r).finished || (liftDay && liftLogged));
+
+  const parts = [];
+  if (morning) parts.push({ id: "morning", label: "Morning mobility", detail: morningDone ? "Done" : "Not finished", done: morningDone });
+  parts.push({ id: "habits", label: "Habits", detail: `${habitsDone} of ${due.length}`, done: habitsDone === due.length });
+  if (trainingDue) {
+    parts.push({ id: "training", label: liftDay ? `Lift · ${r.name}` : r.name, detail: trainingDone ? "Done" : "Not done", done: trainingDone });
+  }
+  const total = due.length + (morning ? 1 : 0) + (trainingDue ? 1 : 0);
+  const done = habitsDone + (morningDone ? 1 : 0) + (trainingDone ? 1 : 0);
+  return { parts, frac: total ? done / total : 0, liftDay, routineId: id };
+}
+
+function dayCardHTML(offsetOverride) {
+  const p = dayProgress();
+  const pct = Math.round(p.frac * 100);
+  const offset = offsetOverride ?? (DAY_RING * (1 - p.frac)).toFixed(2);
+  return `<section class="card day-card ${p.frac === 1 ? "is-complete" : ""}" id="day-card">
+    <div class="day-ring-wrap">
+      <svg class="day-ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="day-ring-track" cx="60" cy="60" r="52"/>
+        <circle class="day-ring-fill" id="day-ring-fill" cx="60" cy="60" r="52" transform="rotate(-90 60 60)"
+          stroke-dasharray="${DAY_RING.toFixed(2)}" stroke-dashoffset="${offset}" data-target="${(DAY_RING * (1 - p.frac)).toFixed(2)}"/>
+      </svg>
+      <span class="day-ring-label"><span class="day-pct">${pct}%</span><span class="day-sub">${p.frac === 1 ? "Day done 🎉" : "of today"}</span></span>
+    </div>
+    <ul class="day-parts" aria-label="Today's progress: ${pct}%">
+      ${p.parts.map((part) => `<li>
+        <button class="day-part ${part.done ? "done" : ""}" data-day-part="${part.id}">
+          <span class="check">${ICONS.check}</span>
+          <span class="day-part-text"><span class="day-part-label">${esc(part.label)}</span><span class="day-part-detail">${esc(part.detail)}</span></span>
+        </button>
+      </li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+// Re-render the day card, animating the ring from where it was.
+function updateDayCard() {
+  const card = document.getElementById("day-card");
+  if (!card) return;
+  const old = card.querySelector("#day-ring-fill").getAttribute("stroke-dashoffset");
+  card.outerHTML = dayCardHTML(old);
+  const fill = document.getElementById("day-ring-fill");
+  requestAnimationFrame(() => requestAnimationFrame(() => fill.setAttribute("stroke-dashoffset", fill.dataset.target)));
+}
+
+function onDayPartClick(part) {
+  if (part === "morning") openSession("morning");
+  if (part === "habits") {
+    const card = document.querySelector(".today-habits");
+    if (card) scrollToCard(card.closest(".card"));
+  }
+  if (part === "training") {
+    const p = dayProgress();
+    if (p.liftDay) startOrResumeWorkout(p.routineId);
+    else openSession(p.routineId);
+  }
+}
+
 function todaySessionHTML() {
   const scheduledId = scheduledRoutineId();
   const id = effectiveRoutineId();
@@ -1052,7 +1168,7 @@ function todaySessionHTML() {
   const startId = id === "rest" ? "morning" : id;
   const startLabel = progress && progress.done && !progress.finished ? "Continue" : "Start";
   return `<section class="card session-card">
-    <p class="mini-label">Today's session</p>
+    <p class="mini-label">Today's training session</p>
     <h2 class="session-name">${esc(routineName(id))}${overridden ? ' <span class="pill pill-warning">Changed</span>' : ""}</h2>
     <p class="hint">${detail}</p>
     <div class="btn-row">
@@ -1062,7 +1178,7 @@ function todaySessionHTML() {
     </div>
     ${id !== "rest" && morning ? `
       <button class="link-row" data-start-session="morning">
-        <span>🌅 Morning routine <span class="muted">· ${morningProgress.finished ? "done ✓" : `${morningProgress.done}/${morningProgress.total}`}</span></span>${ICONS.arrow}
+        <span>🌅 Morning mobility and stretching <span class="muted">· ${morningProgress.finished ? "done ✓" : `${morningProgress.done}/${morningProgress.total}`}</span></span>${ICONS.arrow}
       </button>` : ""}
   </section>`;
 }
@@ -1144,6 +1260,7 @@ function patchTodayHabit(row, h) {
   fill.classList.toggle("is-full", frac === 1);
   ring.querySelector(".ring-label").textContent = `${done}/${due.length}`;
   document.getElementById("today-progress-text").textContent = progressText(done, due.length);
+  updateDayCard();
 }
 
 async function changeTodaySession() {
@@ -1178,6 +1295,8 @@ function onTodayClick(e) {
     renderHabits();
     return;
   }
+  const part = e.target.closest("[data-day-part]");
+  if (part) { onDayPartClick(part.dataset.dayPart); return; }
   const start = e.target.closest("[data-start-session]");
   if (start) { openSession(start.dataset.startSession); return; }
   if (e.target.closest('[data-action="change-session"]')) { changeTodaySession(); return; }
@@ -1917,11 +2036,11 @@ function renderSession() {
           <h3>${esc(s.title)}</h3>
           <ul class="s-list">${s.items.map((it) => sessionItemHTML(it, doneIds)).join("")}</ul>
         </div>`).join("")}
-    </div>
-    <footer class="session-foot">
-      ${hasLifts ? `<button class="btn" data-session="lifts">Log lifts</button>` : ""}
-      <button class="btn btn-primary" data-session="finish">${p.finished ? "Close" : "Finish session"}</button>
-    </footer>`;
+      <footer class="session-foot">
+        ${hasLifts ? `<button class="btn" data-session="lifts">Log lifts</button>` : ""}
+        <button class="btn btn-primary" data-session="finish">${p.finished ? "Close" : "Finish session"}</button>
+      </footer>
+    </div>`;
 }
 
 function sessionItemHTML(it, doneIds) {
@@ -2254,6 +2373,164 @@ function onTimerChange(e) {
     state.settings.holdRestOn = e.target.checked;
     save();
   }
+}
+
+/* ---------- 15b. Stopwatch / countdown (floating timer button) ---------- */
+// Runs from timestamps, so it keeps going while you use other tabs and even
+// survives a reload. Kept under its own key: it isn't part of your data or backups.
+
+const TOOL_KEY = "tracker.v1.timer";
+const COUNTDOWN_PRESETS = [30, 60, 90, 120, 180, 300];
+
+function loadTool() {
+  const base = {
+    mode: "stopwatch",
+    sw: { running: false, startedAt: 0, elapsed: 0, laps: [] },
+    cd: { running: false, endAt: 0, remaining: 60000, total: 60000 }
+  };
+  try {
+    const t = JSON.parse(localStorage.getItem(TOOL_KEY));
+    if (isPlainObject(t)) return { ...base, ...t, sw: { ...base.sw, ...t.sw }, cd: { ...base.cd, ...t.cd } };
+  } catch (_) { /* start fresh */ }
+  return base;
+}
+const tool = loadTool();
+function saveTool() { try { localStorage.setItem(TOOL_KEY, JSON.stringify(tool)); } catch (_) { /* not critical */ } }
+
+function swElapsed() { return tool.sw.elapsed + (tool.sw.running ? Date.now() - tool.sw.startedAt : 0); }
+function cdLeft() { return tool.cd.running ? Math.max(0, tool.cd.endAt - Date.now()) : tool.cd.remaining; }
+
+// 83456 ms -> "1:23.4" (or "1:02:03.4" past an hour); tenths optional.
+function fmtStopwatch(ms, tenths = true) {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  const base = h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+  return tenths ? `${base}.${Math.floor((ms % 1000) / 100)}` : base;
+}
+
+function openTool() {
+  unlockAudio();
+  renderTool();
+  const dlg = document.getElementById("tool-dialog");
+  if (!dlg.open) dlg.showModal();
+}
+
+function renderTool() {
+  const sw = tool.sw;
+  const cd = tool.cd;
+  const isSw = tool.mode === "stopwatch";
+  let body;
+  if (isSw) {
+    const elapsed = swElapsed();
+    const laps = sw.laps.map((t, i) => ({ n: i + 1, total: t, split: t - (sw.laps[i - 1] || 0) })).reverse();
+    body = `
+      <div class="tool-time" id="tool-time">${fmtStopwatch(elapsed)}</div>
+      <div class="tool-controls">
+        <button class="btn" data-tool="sw-reset" ${sw.running || !elapsed ? "disabled" : ""}>Reset</button>
+        <button class="btn ${sw.running ? "btn-danger" : "btn-primary"} tool-main" data-tool="sw-toggle">${sw.running ? "Stop" : elapsed ? "Resume" : "Start"}</button>
+        <button class="btn" data-tool="sw-lap" ${sw.running ? "" : "disabled"}>Lap</button>
+      </div>
+      ${laps.length ? `<ol class="laps">${laps.map((l) => `<li><span>Lap ${l.n}</span><span>${fmtStopwatch(l.split)}</span><span class="muted">${fmtStopwatch(l.total)}</span></li>`).join("")}</ol>` : ""}`;
+  } else {
+    const left = cdLeft();
+    body = `
+      <div class="tool-time ${cd.running ? "" : left === 0 ? "is-done" : ""}" id="tool-time">${fmtClock(left / 1000)}</div>
+      <div class="tool-presets" role="group" aria-label="Countdown length">
+        ${COUNTDOWN_PRESETS.map((s) => `<button class="tag-chip" data-tool-preset="${s}" ${cd.running ? "disabled" : ""} aria-pressed="${!cd.running && cd.total === s * 1000}">${s < 60 ? `${s}s` : fmtClock(s)}</button>`).join("")}
+      </div>
+      <div class="tool-controls">
+        <button class="btn" data-tool="cd-minus" aria-label="15 seconds less">−15</button>
+        <button class="btn ${cd.running ? "btn-danger" : "btn-primary"} tool-main" data-tool="cd-toggle" ${!cd.running && left === 0 ? "disabled" : ""}>${cd.running ? "Pause" : left < cd.total && left > 0 ? "Resume" : "Start"}</button>
+        <button class="btn" data-tool="cd-plus" aria-label="15 seconds more">+15</button>
+      </div>
+      <button class="btn btn-ghost tool-reset" data-tool="cd-reset" ${cd.running ? "disabled" : ""}>Reset to ${fmtClock(cd.total / 1000)}</button>`;
+  }
+
+  document.getElementById("tool-dialog").innerHTML = `
+    <div class="timer-top">
+      <div><p class="eyebrow">Timer</p><h2>${isSw ? "Stopwatch" : "Countdown"}</h2></div>
+      <button class="icon-btn" data-tool="close" aria-label="Close timer">${ICONS.close}</button>
+    </div>
+    <div class="segmented tool-modes" role="tablist">
+      <button role="tab" data-tool-mode="stopwatch" aria-selected="${isSw}">Stopwatch</button>
+      <button role="tab" data-tool-mode="countdown" aria-selected="${!isSw}">Countdown</button>
+    </div>
+    ${body}
+    <p class="hint tool-hint">Keeps running if you close this. Tap the timer button to come back.</p>`;
+}
+
+// Runs a few times a second: updates the numbers and the floating button.
+function toolTick() {
+  const cd = tool.cd;
+  if (cd.running && cd.endAt <= Date.now()) {
+    cd.running = false;
+    cd.remaining = cd.total;   // ready to go again
+    saveTool();
+    signals.allDone();
+    toast("⏱ Countdown finished");
+    if (document.getElementById("tool-dialog").open) renderTool();
+  }
+
+  const fab = document.getElementById("timer-fab");
+  const label = document.getElementById("timer-fab-label");
+  let text = "";
+  if (tool.sw.running) text = fmtStopwatch(swElapsed(), false);
+  else if (cd.running) text = fmtClock(cdLeft() / 1000);
+  else if (tool.sw.elapsed > 0 && tool.mode === "stopwatch") text = fmtStopwatch(tool.sw.elapsed, false);
+  label.textContent = text;
+  label.hidden = !text;
+  fab.classList.toggle("is-running", tool.sw.running || cd.running);
+  fab.classList.toggle("is-paused", !tool.sw.running && !cd.running && !!text);
+  fab.setAttribute("aria-label", text ? `Timer ${text}` : "Open timer");
+
+  const time = document.getElementById("tool-time");
+  if (time && document.getElementById("tool-dialog").open) {
+    time.textContent = tool.mode === "stopwatch" ? fmtStopwatch(swElapsed()) : fmtClock(cdLeft() / 1000);
+  }
+}
+
+function onToolClick(e) {
+  unlockAudio();
+  const mode = e.target.closest("[data-tool-mode]");
+  if (mode) { tool.mode = mode.dataset.toolMode; saveTool(); renderTool(); return; }
+  const preset = e.target.closest("[data-tool-preset]");
+  if (preset) {
+    tool.cd.total = tool.cd.remaining = Number(preset.dataset.toolPreset) * 1000;
+    saveTool();
+    renderTool();
+    return;
+  }
+  const btn = e.target.closest("[data-tool]");
+  if (!btn) return;
+  const sw = tool.sw;
+  const cd = tool.cd;
+  const now = Date.now();
+  switch (btn.dataset.tool) {
+    case "close": document.getElementById("tool-dialog").close(); return;
+    case "sw-toggle":
+      if (sw.running) { sw.elapsed += now - sw.startedAt; sw.running = false; }
+      else { sw.startedAt = now; sw.running = true; }
+      break;
+    case "sw-lap": if (sw.running && sw.laps.length < 99) sw.laps.push(swElapsed()); break;
+    case "sw-reset": if (!sw.running) { sw.elapsed = 0; sw.laps = []; } break;
+    case "cd-toggle":
+      if (cd.running) { cd.remaining = cdLeft(); cd.running = false; }
+      else if (cd.remaining > 0) { cd.endAt = now + cd.remaining; cd.running = true; }
+      break;
+    case "cd-plus":
+    case "cd-minus": {
+      const delta = btn.dataset.tool === "cd-plus" ? 15000 : -15000;
+      if (cd.running) cd.endAt = Math.max(now + 1000, cd.endAt + delta);
+      else { cd.remaining = Math.max(0, cd.remaining + delta); if (cd.remaining > cd.total) cd.total = cd.remaining; }
+      break;
+    }
+    case "cd-reset": if (!cd.running) cd.remaining = cd.total; break;
+  }
+  saveTool();
+  renderTool();
+  toolTick();
 }
 
 /* ---------- 16. Lifts tab ---------- */
@@ -3588,6 +3865,8 @@ function init() {
   // Close events arrive a moment later; ignore one if the timer was already reopened.
   on("timer-dialog", "close", (e) => { if (!e.target.open) stopHoldTimer(); });
   on("rest-bar", "click", onRestClick);
+  on("timer-fab", "click", openTool);
+  on("tool-dialog", "click", onToolClick);
   on("lifts-content", "click", onLiftsClick);
   on("lifts-content", "input", onLiftsInput);
   on("lifts-content", "change", onLiftsInput);
@@ -3607,6 +3886,8 @@ function init() {
     else checkDayChange();
   });
   window.addEventListener("pagehide", flushSave);
+  setInterval(toolTick, 250);
+  toolTick();
   setInterval(() => {
     checkDayChange();
     const el = document.getElementById("lift-elapsed");
