@@ -11,7 +11,7 @@
    Your data is NOT stored here; it's in localStorage.
    ========================================================= */
 
-const CACHE_VERSION = "tracker-v2";
+const CACHE_VERSION = "tracker-v3";
 const NETWORK_TIMEOUT_MS = 3000;
 const CHART_URL = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
 
@@ -33,7 +33,7 @@ const APP_FILES = [
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_VERSION);
-    await cache.addAll(APP_FILES);
+    await cache.addAll(APP_FILES.map((url) => new Request(url, { cache: "reload" })));   // skip the browser's saved copies
     try { await cache.add(CHART_URL); } catch (_) { /* fetched again on first use */ }
     await self.skipWaiting();
   })());
@@ -73,7 +73,13 @@ async function cacheFirst(req) {
 
 async function networkFirst(req) {
   const cache = await caches.open(CACHE_VERSION);
-  const network = fetch(req).then((res) => {
+  // "no-cache" = always check with the server instead of reusing the browser's
+  // saved copy (GitHub Pages lets browsers reuse files for 10 minutes), so a
+  // new version shows up the first time the app is opened online.
+  const fresh = req.mode === "navigate"
+    ? new Request(req.url, { cache: "no-cache", credentials: "same-origin" })
+    : new Request(req, { cache: "no-cache" });
+  const network = fetch(fresh).then((res) => {
     if (res.ok) cache.put(req, res.clone());
     return res;
   });
