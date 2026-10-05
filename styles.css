@@ -212,7 +212,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   font-weight: 650;
   white-space: nowrap;
 }
-.pill-accent { background: var(--accent-soft); color: var(--accent); }
+.pill.pill-accent { background: var(--accent-soft); color: var(--accent); }
 
 .btn {
   display: inline-flex;
@@ -451,8 +451,50 @@ button.ex-row:hover .ex-name { color: #fff; }
 .alert-card .hint { color: #ffd9a3; }
 
 .session-name { font-size: var(--fs-2xl); font-weight: 750; letter-spacing: -0.02em; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.session-card .hint { margin: 2px 0 var(--space-4); }
-.pill-warning { background: var(--warning-soft); color: var(--warning); }
+.session-card .hint { margin: 2px 0 var(--space-3); }
+.session-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+
+/* Routine icon tile — same look on Today, Routines and the Calendar */
+.plan-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), 0.06);
+  color: var(--accent);
+}
+.plan-icon .line-icon { width: 18px; height: 18px; }
+.routine-title .plan-icon { width: 30px; height: 30px; }
+
+/* Today's plan: one row per routine (morning, session, companion) */
+.plan-list { list-style: none; margin: 0; padding: 0; }
+.plan-row { display: flex; align-items: center; gap: var(--space-2); border-top: 1px solid var(--border); }
+.plan-row:first-child { border-top: 0; }
+.plan-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  min-height: 62px;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.plan-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.plan-name { font-weight: 650; }
+.plan-detail { color: var(--text-muted); font-size: var(--fs-sm); }
+.plan-action { color: var(--accent); font-size: var(--fs-sm); font-weight: 650; }
+.plan-row.done .plan-name { color: var(--text-muted); }
+.plan-row.done .plan-action { color: var(--text-faint); }
+.plan-row.done .plan-icon { opacity: 0.55; }
+.plan-lifts { flex: none; }
+.cal-status .plan-icon { width: 30px; height: 30px; }
+.pill.pill-warning { background: var(--warning-soft); color: var(--warning); }
 
 .link-row {
   display: flex;
@@ -609,7 +651,7 @@ button.hm-cell:hover { outline: 1px solid var(--text-muted); }
 body.no-scroll { overflow: hidden; }
 .btn svg { width: 18px; height: 18px; }
 .pill { background: var(--surface-3); color: var(--text-muted); }
-.pill-gold { background: rgba(245, 196, 81, 0.14); color: var(--gold); }
+.pill.pill-gold { background: rgba(245, 196, 81, 0.14); color: var(--gold); }
 
 .icon-btn {
   display: inline-grid;
@@ -1184,11 +1226,6 @@ button.cal-cell:hover { background: var(--surface-2); }
   font-weight: 800;
   pointer-events: none;
 }
-.work-card { padding: var(--space-3); }
-.work-card.is-done { border-color: rgba(var(--accent-rgb), 0.4); }
-.work-card .s-check { min-height: 52px; }
-.work-count { color: var(--text-muted); font-size: var(--fs-sm); font-weight: 650; font-variant-numeric: tabular-nums; padding-right: 4px; }
-.work-card.is-done .work-count { color: var(--accent); }
 .add-exercise-btn { width: 100%; margin: var(--space-3) 0; border-style: dashed; }
 .logger-foot { margin-top: var(--space-4); }
 .logger-foot .btn-primary { flex: 1; }

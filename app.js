@@ -29,8 +29,8 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.11.1";
-const SCHEMA_VERSION = 7;
+const APP_VERSION = "0.12.0";
+const SCHEMA_VERSION = 8;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
 const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings", "calendar"];
@@ -58,6 +58,8 @@ const LINE_ICONS = {
   snow: '<path d="M12 2v20M4.9 7l14.2 10M19.1 7L4.9 17"/>',
   walk: '<circle cx="13" cy="4" r="2"/><path d="M10 22l2-6-3-3 1-5 4 3 3 1M9 13l-3 3"/>',
   // Used elsewhere in the UI (not offered in the habit picker)
+  band: '<path d="M2 12c1.7-3.3 3.3-3.3 5 0s3.3 3.3 5 0 3.3-3.3 5 0 3.3 3.3 5 0"/>',
+  hold: '<path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2"/>',
   flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4.1 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22M14 14.7V17c0 .6.5 1 1 1.2 1.1.6 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0z"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
@@ -334,6 +336,39 @@ const MIGRATIONS = {
       else if (h.icon && !LINE_ICONS[h.icon]) h.icon = EMOJI_TO_ICON[h.icon] || "";
     });
     d.schemaVersion = 7;
+  },
+  // v7 → v8: Band work and Iso work move out of Upper/Lower into their own
+  // companion routines. Items keep their IDs (and any edits), and ticks already
+  // made move with them, so no progress is lost. "Morning" → "Morning mobility".
+  7: (d) => {
+    const routines = Array.isArray(d.routines) ? d.routines : (d.routines = []);
+    if (!Array.isArray(d.routineCompletions)) d.routineCompletions = [];
+    const moves = [["upper", "band-work", /band/i], ["lower", "iso-work", /iso/i]];
+    for (const [parentId, compId, pattern] of moves) {
+      if (routines.some((r) => r.id === compId)) continue;
+      const parent = routines.find((r) => r.id === parentId);
+      const comp = clone(DEFAULT_ROUTINES.find((r) => r.id === compId));
+      const i = parent ? (parent.sections || []).findIndex((s) => pattern.test(s.title)) : -1;
+      if (i >= 0) {
+        const [moved] = parent.sections.splice(i, 1);
+        comp.sections = [{ title: comp.sections[0].title, items: moved.items }];
+      } else {
+        comp.sections.forEach((s) => s.items.forEach((it) => { it.id = uid(); }));
+      }
+      // Move any ticks on these items to the new routine's checklist for that day.
+      const ids = new Set(comp.sections.flatMap((s) => s.items.map((it) => it.id)));
+      d.routineCompletions.filter((c) => c.routineId === parentId).forEach((c) => {
+        const ticks = (c.completedItemIds || []).filter((x) => ids.has(x));
+        if (!ticks.length) return;
+        c.completedItemIds = c.completedItemIds.filter((x) => !ids.has(x));
+        d.routineCompletions.push({ date: c.date, routineId: compId, completedItemIds: ticks, finished: false });
+      });
+      const at = routines.findIndex((r) => r.id === parentId);
+      routines.splice(at >= 0 ? at + 1 : routines.length, 0, comp);
+    }
+    const morning = routines.find((r) => r.id === "morning");
+    if (morning && morning.name === "Morning") morning.name = "Morning mobility";
+    d.schemaVersion = 8;
   }
 };
 
@@ -1168,66 +1203,63 @@ function dayProgress(date = new Date(), starts = null) {
   const due = habitsDueOn(day, starts);
   const habitsDone = due.filter((h) => isDone(h, key)).length;
 
-  const morning = getRoutine("morning");
-  const morningDone = morning ? routineProgress(morning, key).finished : false;
-
-  const id = effectiveRoutineId(day);
-  const r = getRoutine(id);
-  const trainingDue = id !== "rest" && !!r && sessionItems(r).length > 0;
-  const liftDay = trainingDue && sessionItems(r).some((i) => i.type === "lift");
-  const training = trainingDue ? trainingParts(r, key) : [];
+  // The day's routines: morning mobility, the main session, and its companion.
+  const plan = dayPlan(day);
+  const routineParts = plan.map((r) => ({ ...routineStatus(r, key), id: r.id, label: r.name }));
 
   const parts = [];
-  if (morning) parts.push({ id: "morning", label: "Morning mobility", detail: morningDone ? "Done" : "Not finished", done: morningDone });
+  if (routineParts[0] && routineParts[0].id === "morning") parts.push(routineParts.shift());
   parts.push({ id: "habits", label: "Habits", detail: `${habitsDone} of ${due.length}`, done: habitsDone === due.length });
-  parts.push(...training);
+  parts.push(...routineParts);
 
-  // Each habit counts once; the morning routine and each training part count once each.
-  const total = due.length + (morning ? 1 : 0) + training.length;
-  const done = habitsDone + (morningDone ? 1 : 0) + training.filter((p) => p.done).length;
-  return { parts, frac: total ? done / total : 0, liftDay, routineId: id, due, key };
+  // Each habit counts once; each routine (morning, main session, companion) counts once.
+  const routineCount = parts.filter((p) => p.id !== "habits");
+  const total = due.length + routineCount.length;
+  const done = habitsDone + routineCount.filter((p) => p.done).length;
+  const main = getRoutine(effectiveRoutineId(day));
+  return { parts, frac: total ? done / total : 0, routineId: main ? main.id : "rest", due, key };
 }
 
-// Today's training, split into parts that each have to be done:
-//  - lift days: "Lifts" (a logged lift session, or every lift ticked in the checklist)
-//    plus one part per non-lift group, e.g. "Band work" or "Iso work" (every item ticked);
-//  - other days (Active Rest): the whole checklist.
-function trainingParts(r, key) {
-  const c = findCompletion(key, r.id);
-  const ticked = new Set(c ? c.completedItemIds : []);
-  const liftItems = sessionItems(r).filter((i) => i.type === "lift");
+// --- Routines for a day, and whether each is done. Used by Today, the ring,
+// --- the Calendar and the Routines tab, so they all agree. ---
 
-  if (!liftItems.length) {
-    const p = routineProgress(r, key);
-    const done = p.finished || (p.total > 0 && p.done === p.total);
-    return [{ id: "session", label: r.name, detail: done ? "Done" : `${p.done} of ${p.total}`, done }];
+// Band work goes with Upper, Iso work with Lower (set by `companionOf` in data.js).
+function companionOf(routineId) {
+  return state.routines.find((r) => r.companionOf === routineId) || null;
+}
+
+// Morning mobility every day, then the day's session (not on Rest days), then its companion.
+function dayPlan(date = new Date()) {
+  const plan = [];
+  const morning = getRoutine("morning");
+  if (morning) plan.push(morning);
+  const main = getRoutine(effectiveRoutineId(date));
+  if (main && main.id !== "rest" && sessionItems(main).length) {
+    plan.push(main);
+    const comp = companionOf(main.id);
+    if (comp && sessionItems(comp).length) plan.push(comp);
   }
+  return plan;
+}
 
-  // A finished lift session today for this routine (or a blank session) counts.
-  const liftLogged = state.workouts.some((w) => w.finishedAt && w.date === key && (!w.routineId || w.routineId === r.id));
-  const liftsTicked = liftItems.filter((i) => ticked.has(i.id)).length;
-  const liftsDone = liftLogged || liftsTicked === liftItems.length;
-  const parts = [{
-    id: "lifts",
-    label: `Lifts · ${r.name}`,
-    detail: liftsDone ? (liftLogged ? "Logged" : "Done") : "Not logged yet",
-    done: liftsDone
-  }];
-  for (const s of workSections(r)) {
-    const items = s.items.filter((i) => i.type !== "info");
-    const n = items.filter((i) => ticked.has(i.id)).length;
-    parts.push({ id: "work", label: s.title, detail: `${n} of ${items.length}`, done: n === items.length });
+function isLiftRoutine(r) { return sessionItems(r).some((i) => i.type === "lift"); }
+
+// A routine is done when its checklist is finished or every item is ticked.
+// Lift routines also count as done once a lift session for them is logged.
+function routineStatus(r, key = dateKey()) {
+  const p = routineProgress(r, key);
+  const allTicked = p.total > 0 && p.done === p.total;
+  if (isLiftRoutine(r)) {
+    const logged = state.workouts.some((w) => w.finishedAt && w.date === key && (!w.routineId || w.routineId === r.id));
+    const done = logged || p.finished || allTicked;
+    return { done, logged, progress: p, detail: logged ? "Lifts logged" : done ? "Done" : "Not logged yet" };
   }
-  return parts;
+  const done = p.finished || allTicked;
+  return { done, logged: false, progress: p, detail: done ? "Done" : p.done ? `${p.done} of ${p.total}` : `${plural(p.total, "item")}` };
 }
 
-// Groups in a routine that aren't lifts (Band work, Iso work).
-function workSections(r) {
-  return r.sections.filter((s) => {
-    const items = s.items.filter((i) => i.type !== "info");
-    return items.length && !items.some((i) => i.type === "lift");
-  });
-}
+const ROUTINE_ICONS = { morning: "sunrise", upper: "dumbbell", lower: "dumbbell", "band-work": "band", "iso-work": "hold", "active-rest": "walk", rest: "moon" };
+function routineIcon(r) { return lineIcon(ROUTINE_ICONS[r.id] || (isLiftRoutine(r) ? "dumbbell" : "pulse")); }
 
 function dayCardHTML(offsetOverride) {
   const p = dayProgress();
@@ -1263,50 +1295,75 @@ function updateDayCard() {
   requestAnimationFrame(() => requestAnimationFrame(() => fill.setAttribute("stroke-dashoffset", fill.dataset.target)));
 }
 
+// Tapping a ring row opens that routine (lift days go to the lift logger).
 function onDayPartClick(part) {
-  if (part === "morning") openSession("morning");
   if (part === "habits") {
     const card = document.querySelector(".today-habits");
     if (card) scrollToCard(card.closest(".card"));
+    return;
   }
-  const p = dayProgress();
-  if (part === "lifts") startOrResumeWorkout(p.routineId);
-  if (part === "work" || part === "session") openSession(p.routineId);
+  const r = getRoutine(part);
+  if (!r) return;
+  if (isLiftRoutine(r)) openLiftsFor(r.id);
+  else openSession(r.id);
 }
 
+// Lifts for a routine: resume an unfinished session, open today's logged one,
+// or start a new one.
+function openLiftsFor(routineId) {
+  const active = activeWorkout();
+  const logged = state.workouts.filter((w) => w.finishedAt && w.date === dateKey() && w.routineId === routineId).pop();
+  if (!active && logged) {
+    liftsUI.editingId = logged.id;
+    liftsUI.view = "log";
+    goToTab("lifts");
+    return;
+  }
+  startOrResumeWorkout(routineId);
+}
+
+// Today's plan: the session name, then one row per routine (morning mobility,
+// the session, its companion), each with its own status and Start button.
 function todaySessionHTML() {
   const scheduledId = scheduledRoutineId();
   const id = effectiveRoutineId();
-  const r = getRoutine(id);
   const overridden = id !== scheduledId;
-  const progress = r && id !== "rest" ? routineProgress(r) : null;
-  const morning = getRoutine("morning");
-  const morningProgress = morning ? routineProgress(morning) : null;
-  const hasLifts = r && sessionItems(r).some((i) => i.type === "lift");
+  const plan = dayPlan();
+  const done = plan.filter((r) => routineStatus(r).done).length;
 
-  let detail;
-  if (id === "rest") detail = "Full rest. Morning routine only.";
-  else if (progress && progress.finished) detail = "Finished today ✓";
-  else if (progress && progress.done) detail = `In progress · ${progress.done} of ${progress.total} done`;
-  else if (overridden) detail = `Changed for today · schedule says ${esc(routineName(scheduledId))}`;
-  else detail = `Day ${scheduleDayNumber()} of your week${progress ? ` · ${plural(progress.total, "item")}` : ""}`;
+  const sub = id === "rest"
+    ? "Full rest. Morning mobility only."
+    : overridden ? `Changed for today · schedule says ${esc(routineName(scheduledId))}` : `Day ${scheduleDayNumber()} of your week`;
 
-  const startId = id === "rest" ? "morning" : id;
-  const startLabel = progress && progress.done && !progress.finished ? "Continue" : "Start";
   return `<section class="card session-card">
-    <p class="mini-label">Today's training session</p>
-    <h2 class="session-name">${esc(routineName(id))}${overridden ? ' <span class="pill pill-warning">Changed</span>' : ""}</h2>
-    <p class="hint">${detail}</p>
-    <div class="btn-row">
-      <button class="btn btn-primary" data-start-session="${esc(startId)}">${ICONS.play}${startLabel} ${esc(routineName(startId))}</button>
-      ${hasLifts ? `<button class="btn" data-action="log-lifts" data-routine="${esc(id)}">${activeWorkout() ? "Resume lifts" : "Log lifts"}</button>` : ""}
-      <button class="btn" data-action="change-session">Change</button>
+    <div class="session-card-head">
+      <div>
+        <p class="mini-label">Today's training session</p>
+        <h2 class="session-name">${esc(routineName(id))}${overridden ? ' <span class="pill pill-warning">Changed</span>' : ""}</h2>
+        <p class="hint">${sub}</p>
+      </div>
+      <button class="btn btn-small" data-action="change-session">Change</button>
     </div>
-    ${id !== "rest" && morning ? `
-      <button class="link-row" data-start-session="morning">
-        <span class="link-row-label">${lineIcon("sunrise")}Morning mobility and stretching <span class="muted">· ${morningProgress.finished ? "done ✓" : `${morningProgress.done}/${morningProgress.total}`}</span></span>${ICONS.arrow}
-      </button>` : ""}
+    <ul class="plan-list" aria-label="Today's routines: ${done} of ${plan.length} done">
+      ${plan.map((r) => planRowHTML(r)).join("")}
+    </ul>
   </section>`;
+}
+
+function planRowHTML(r) {
+  const s = routineStatus(r);
+  const p = s.progress;
+  const lift = isLiftRoutine(r);
+  const action = s.done ? "View" : p.done ? "Continue" : "Start";
+  return `<li class="plan-row ${s.done ? "done" : ""}">
+    <button class="plan-main" data-start-session="${esc(r.id)}" aria-label="${action} ${esc(r.name)}">
+      <span class="check">${ICONS.check}</span>
+      <span class="plan-icon">${routineIcon(r)}</span>
+      <span class="plan-text"><span class="plan-name">${esc(r.name)}</span><span class="plan-detail">${esc(s.detail)}</span></span>
+      <span class="plan-action">${action}</span>
+    </button>
+    ${lift ? `<button class="btn btn-small plan-lifts" data-action="log-lifts" data-routine="${esc(r.id)}">${activeWorkout() ? "Resume lifts" : s.logged ? "View lifts" : "Log lifts"}</button>` : ""}
+  </li>`;
 }
 
 function todayHabitsHTML() {
@@ -1427,7 +1484,7 @@ function onTodayClick(e) {
   if (start) { openSession(start.dataset.startSession); return; }
   if (e.target.closest('[data-action="change-session"]')) { changeTodaySession(); return; }
   const lifts = e.target.closest('[data-action="log-lifts"]');
-  if (lifts) { startOrResumeWorkout(lifts.dataset.routine); return; }
+  if (lifts) { openLiftsFor(lifts.dataset.routine); return; }
   if (e.target.closest('[data-action="resume-lifts"]')) { liftsUI.view = "log"; liftsUI.editingId = null; goToTab("lifts"); return; }
   onRehabFormClick(e);
 }
@@ -1807,7 +1864,7 @@ function scheduleCardHTML() {
       <button class="schedule-row ${isToday ? "is-today" : ""}" data-goto-routine="${esc(s.routineId)}">
         <span class="sched-weekday">${WEEKDAYS_SHORT[weekdayForDay(s.day)]}</span>
         <span class="sched-day">Day ${s.day}</span>
-        <span class="sched-routine">${esc(routineName(s.routineId))}</span>
+        <span class="sched-routine">${esc(routineName(s.routineId))}${companionOf(s.routineId) ? `<span class="muted"> + ${esc(companionOf(s.routineId).name)}</span>` : ""}</span>
         ${isToday ? '<span class="pill pill-accent">Today</span>' : ""}
       </button>
     </li>`;
@@ -1817,7 +1874,7 @@ function scheduleCardHTML() {
     : `Today is Day ${todayNum} (${esc(routineName(scheduledId))}), changed to ${esc(routineName(actualId))}.`;
   return `<section class="card">
     <ul class="schedule">${rows}</ul>
-    <p class="hint schedule-foot">Morning routine every day. ${foot}</p>
+    <p class="hint schedule-foot">${esc(routineName("morning"))} every day. ${foot}</p>
   </section>`;
 }
 
@@ -1825,15 +1882,17 @@ function routineCardHTML(r, todayId) {
   const editing = routineUI.editing === r.id;
   const open = editing || routineUI.openRoutines.has(r.id);
   const count = sessionItems(r).length;
-  const isToday = r.id === todayId;
+  const isToday = dayPlan().some((x) => x.id === r.id) && r.id !== "morning";
   const meta = [r.when, count ? plural(count, "item") : ""].filter(Boolean).join(" · ");
-  const p = routineProgress(r);
-  const status = p.finished ? '<span class="pill pill-accent">Done today</span>'
-    : p.done ? `<span class="pill">${p.done}/${p.total} today</span>` : "";
+  // Same "done" rule as Today and the progress ring.
+  const s = routineStatus(r);
+  const status = s.done && (s.progress.done || s.logged) ? '<span class="pill pill-accent">Done today</span>'
+    : s.progress.done ? `<span class="pill">${s.progress.done}/${s.progress.total} today</span>` : "";
 
   return `<article class="card routine ${open ? "open" : ""}" id="routine-${esc(r.id)}">
     <button class="routine-head" data-toggle-routine="${esc(r.id)}" aria-expanded="${open}">
       <span class="routine-title">
+        <span class="plan-icon">${routineIcon(r)}</span>
         <span class="routine-name">${esc(r.name)}</span>
         ${isToday ? '<span class="pill pill-accent">Today</span>' : ""}
         ${status}
@@ -3049,55 +3108,9 @@ function startHTML() {
     </section>`;
 }
 
-// Band work / iso work checklists inside the lift logger (today's session only).
-// Groups that come before the lifts in the routine show above, the rest below.
-function workCardsFor(w) {
-  const r = !w.finishedAt && w.routineId && w.date === dateKey() ? getRoutine(w.routineId) : null;
-  if (!r) return { before: "", after: "" };
-  const firstLift = r.sections.findIndex((s) => s.items.some((i) => i.type === "lift"));
-  let before = "";
-  let after = "";
-  workSections(r).forEach((s) => {
-    const html = workCardHTML(r, s);
-    if (r.sections.indexOf(s) < firstLift) before += html; else after += html;
-  });
-  return { before, after };
-}
-
-function workCardHTML(r, s) {
-  const c = findCompletion(dateKey(), r.id);
-  const ticked = new Set(c ? c.completedItemIds : []);
-  const items = s.items.filter((i) => i.type !== "info");
-  const n = items.filter((i) => ticked.has(i.id)).length;
-  return `<section class="card work-card ${n === items.length ? "is-done" : ""}" id="work-${esc(slug(s.title))}" data-work-routine="${esc(r.id)}">
-    <div class="entry-head">
-      <h3 class="entry-name">${esc(s.title)}</h3>
-      <span class="work-count">${n === items.length ? "Done ✓" : `${n}/${items.length}`}</span>
-    </div>
-    <ul class="s-list">
-      ${items.map((it) => `<li class="s-item ${ticked.has(it.id) ? "done" : ""}">
-        <div class="s-row">
-          <button class="s-check" data-lw-check="${esc(it.id)}" aria-pressed="${ticked.has(it.id)}">
-            <span class="check">${ICONS.check}</span>
-            <span class="ex-main"><span class="ex-name">${esc(it.name)}</span>${it.dose ? `<span class="ex-dose">${esc(it.dose)}</span>` : ""}</span>
-          </button>
-          ${isTimed(it) ? `<button class="icon-btn icon-btn-accent" data-lw-timer="${esc(it.id)}" aria-label="Start timer for ${esc(it.name)}">${ICONS.clock}</button>` : ""}
-        </div>
-      </li>`).join("")}
-    </ul>
-  </section>`;
-}
-
-function refreshWorkCard(routineId, itemId) {
-  const r = getRoutine(routineId);
-  const s = r && r.sections.find((sec) => sec.items.some((i) => i.id === itemId));
-  const card = s && document.getElementById(`work-${slug(s.title)}`);
-  if (card) card.outerHTML = workCardHTML(r, s);
-}
-
 function loggerHTML(w) {
   const editing = !!w.finishedAt;
-  const work = workCardsFor(w);
+
   return `
     <section class="card logger-head">
       <p class="mini-label">${editing ? "Editing past session" : "Session in progress"}</p>
@@ -3112,10 +3125,8 @@ function loggerHTML(w) {
       </div>
     </section>
 
-    ${work.before}
     ${w.entries.map((e, i) => entryHTML(w, e, i)).join("")}
     <button class="btn add-exercise-btn" data-lift="add-exercise">+ Add exercise</button>
-    ${work.after}
 
     <section class="card">
       <div class="slider-row">
@@ -3498,28 +3509,6 @@ function onLiftsClick(e) {
   const open = e.target.closest("[data-open-workout]");
   if (open) { liftsUI.editingId = open.dataset.openWorkout; liftsUI.view = "log"; renderLifts(); window.scrollTo(0, 0); return; }
 
-  // Band work / iso work cards
-  const workCheck = e.target.closest("[data-lw-check]");
-  if (workCheck) {
-    const routineId = workCheck.closest("[data-work-routine]").dataset.workRoutine;
-    const id = workCheck.dataset.lwCheck;
-    const nowDone = workCheck.getAttribute("aria-pressed") !== "true";
-    setRoutineItemDone(routineId, id, nowDone);
-    refreshWorkCard(routineId, id);
-    if (nowDone) {
-      const fresh = document.querySelector(`[data-lw-check="${id}"]`);
-      if (fresh) fresh.closest(".s-item").classList.add("pop");
-    }
-    return;
-  }
-  const workTimer = e.target.closest("[data-lw-timer]");
-  if (workTimer) {
-    const routineId = workTimer.closest("[data-work-routine]").dataset.workRoutine;
-    const found = findItem(workTimer.dataset.lwTimer);
-    if (found) openHoldTimer(found.item, () => { setRoutineItemDone(routineId, found.item.id, true); refreshWorkCard(routineId, found.item.id); });
-    return;
-  }
-
   const w = currentWorkout();
   if (!w) return;
 
@@ -3543,9 +3532,8 @@ function onLiftsClick(e) {
   const add = e.target.closest("[data-add-set]");
   if (add) {
     const i = Number(add.dataset.addSet);
-    const sets = w.entries[i].sets;
-    const prev = sets[sets.length - 1];
-    sets.push(prev ? { ...prev, warmup: false, done: false } : blankSet());   // copy the previous set
+    // New sets start empty (last session's numbers show as faint hints only).
+    w.entries[i].sets.push(blankSet());
     w.updatedAt = new Date().toISOString();
     save();
     refreshEntry(i);
@@ -4119,9 +4107,18 @@ function calendarDayHTML(day, starts) {
   const routineId = p.routineId;
   const overridden = !!state.sessionOverrides[key];
 
-  // Checklist: morning routine, every habit due that day (tappable), training parts.
-  const morning = getRoutine("morning");
-  const mp = morning ? routineProgress(morning, key) : null;
+  // Checklist: the day's routines (same rows and status as Today) and every
+  // habit due that day (tappable).
+  const routineRow = (part) => {
+    const r = getRoutine(part.id);
+    return `<li class="cal-status ${part.done ? "done" : ""}">
+      <span class="check">${ICONS.check}</span>
+      ${r ? `<span class="plan-icon">${routineIcon(r)}</span>` : ""}
+      <span class="habit-text"><span class="habit-name">${esc(part.label)}</span><span class="habit-meta">${esc(part.detail)}</span></span>
+    </li>`;
+  };
+  const morningPart = p.parts.find((x) => x.id === "morning");
+  const sessionParts = p.parts.filter((x) => x.id !== "morning" && x.id !== "habits");
   const habitRows = p.due.map((h) => `<li>
       <button class="today-habit ${isDone(h, key) ? "done" : ""}" data-cal-habit="${esc(h.id)}" aria-pressed="${isDone(h, key)}">
         <span class="check">${ICONS.check}</span>
@@ -4129,12 +4126,6 @@ function calendarDayHTML(day, starts) {
         <span class="habit-text"><span class="habit-name">${esc(h.name)}</span></span>
       </button>
     </li>`).join("");
-  const statusRow = (label, detail, done) => `<li class="cal-status ${done ? "done" : ""}">
-      <span class="check">${ICONS.check}</span>
-      <span class="habit-text"><span class="habit-name">${esc(label)}</span><span class="habit-meta">${esc(detail)}</span></span>
-    </li>`;
-  const trainingRows = p.parts.filter((x) => !["morning", "habits"].includes(x.id))
-    .map((x) => statusRow(x.label, x.detail, x.done)).join("");
 
   // What was logged that day.
   const workouts = state.workouts.filter((w) => w.finishedAt && w.date === key);
@@ -4188,9 +4179,9 @@ function calendarDayHTML(day, starts) {
 
     <h3 class="mini-label">Checklist</h3>
     <ul class="today-habits cal-checklist">
-      ${morning ? statusRow("Morning mobility and stretching", mp.finished ? "Finished" : `${mp.done} of ${mp.total} ticked`, mp.finished) : ""}
+      ${morningPart ? routineRow(morningPart) : ""}
+      ${sessionParts.map(routineRow).join("")}
       ${habitRows}
-      ${trainingRows}
     </ul>
     <p class="hint cal-tip">Tap a habit to tick or untick it for this day.</p>
 

@@ -16,7 +16,8 @@ const DEFAULT_SCHEDULE = [
   { day: 7, routineId: "rest" }
 ];
 // Day 1 maps to settings.scheduleStartWeekday (default Monday).
-// The morning routine is done every day, including Rest days.
+// Morning mobility is done every day, including Rest days. Band work and Iso
+// work are companion routines: they go with Upper and Lower (see companionOf).
 
 const PAIN_RULE = "Keep pain at 3/10 or lower during exercises, and make sure you're back to baseline by the next morning. If not, cut volume or load next session.";
 
@@ -29,7 +30,7 @@ const PROGRESSIONS = [
 const DEFAULT_ROUTINES = [
   {
     id: "morning",
-    name: "Morning",
+    name: "Morning mobility",
     when: "Daily",
     sections: [
       {
@@ -59,16 +60,6 @@ const DEFAULT_ROUTINES = [
     when: "Days 1 and 4",
     sections: [
       {
-        title: "Band work",
-        items: [
-          { name: "Band front pulls", type: "reps", dose: "", cue: "Pull the band toward your face with elbows high, squeezing your shoulder blades together." },
-          { name: "Band around the worlds", type: "reps", dose: "", cue: "Hold a band wide with straight arms and bring it from your hips, over your head, to behind your back and back again. Start wide." },
-          { name: "Band rotations up and down", type: "reps", dose: "", cue: "Elbow at shoulder height and bent 90°; rotate the forearm up and down against the band." },
-          { name: "Band external rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Elbow pinned to your side, bent 90°. Rotate out against the band; on the last set, hold at the end of the range." },
-          { name: "Band internal rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Same setup, facing the other way. Rotate in across your body; hold at the end of the last set." }
-        ]
-      },
-      {
         title: "Lifts",
         items: [
           { name: "Lat pulldowns", type: "lift", dose: "", cue: "" },
@@ -78,6 +69,26 @@ const DEFAULT_ROUTINES = [
           { name: "Trap/scapula raises", type: "lift", dose: "", cue: "" },
           { name: "Biceps", type: "lift", dose: "", cue: "" },
           { name: "Triceps (cable)", type: "lift", dose: "", cue: "" }
+        ]
+      }
+    ]
+  },
+  {
+    // A companion routine: done on the same days as Upper (it follows Upper
+    // if you change the day's session), but tracked as its own routine.
+    id: "band-work",
+    name: "Band work",
+    when: "With Upper (Days 1 and 4)",
+    companionOf: "upper",
+    sections: [
+      {
+        title: "Bands",
+        items: [
+          { name: "Band front pulls", type: "reps", dose: "", cue: "Pull the band toward your face with elbows high, squeezing your shoulder blades together." },
+          { name: "Band around the worlds", type: "reps", dose: "", cue: "Hold a band wide with straight arms and bring it from your hips, over your head, to behind your back and back again. Start wide." },
+          { name: "Band rotations up and down", type: "reps", dose: "", cue: "Elbow at shoulder height and bent 90°; rotate the forearm up and down against the band." },
+          { name: "Band external rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Elbow pinned to your side, bent 90°. Rotate out against the band; on the last set, hold at the end of the range." },
+          { name: "Band internal rotations", type: "hold", dose: "sets + 30–45s hold at end of last set", holdSeconds: 45, sets: 1, cue: "Same setup, facing the other way. Rotate in across your body; hold at the end of the last set." }
         ]
       }
     ]
@@ -99,9 +110,18 @@ const DEFAULT_ROUTINES = [
           { name: "Adductor machine", type: "lift", dose: "", cue: "" },
           { name: "Calf raises", type: "lift", dose: "", cue: "" }
         ]
-      },
+      }
+    ]
+  },
+  {
+    // Companion routine for Lower days (see Band work above).
+    id: "iso-work",
+    name: "Iso work",
+    when: "With Lower (Days 2 and 5)",
+    companionOf: "lower",
+    sections: [
       {
-        title: "Iso work",
+        title: "Isometric holds",
         items: [
           { name: "Wall sit", type: "hold", dose: "4 x 45s", holdSeconds: 45, sets: 4, cue: "Back flat against the wall, knees bent about 60–70°. Rest 1–2 min between sets." },
           { name: "Static lunge", type: "hold", dose: "3 x 30–45s/side", holdSeconds: 45, sets: 3, perSide: true, cue: "Split squat with the back knee hovering an inch off the floor. Torso tall, front heel planted." },
@@ -146,7 +166,7 @@ const DEFAULT_ROUTINES = [
     name: "Rest",
     when: "Day 7",
     sections: [
-      { title: "Rest", items: [{ name: "Full rest. Morning routine only.", type: "info", dose: "", cue: "" }] }
+      { title: "Rest", items: [{ name: "Full rest. Morning mobility only.", type: "info", dose: "", cue: "" }] }
     ]
   }
 ];
