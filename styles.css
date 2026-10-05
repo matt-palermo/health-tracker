@@ -1256,7 +1256,9 @@ button.cal-cell:hover { background: var(--surface-2); }
 .rest-actions .btn { min-width: 48px; padding: 0 var(--space-2); }
 .rest-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: transparent; }
 .rest-progress span { display: block; height: 100%; background: var(--info); transition: width 0.1s linear; }
-body.has-rest-bar .main { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 120px); }
+/* Room for the rest bar AND the timer button above it, so the last buttons
+   on the page (e.g. Finish / Discard) can always scroll clear of both. */
+body.has-rest-bar .main { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 180px); }
 @media (min-width: 900px) {
   .rest-bar { left: calc(236px + var(--space-6)); right: auto; width: 420px; bottom: var(--space-5); }
 }

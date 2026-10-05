@@ -29,8 +29,8 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.12.0";
-const SCHEMA_VERSION = 8;
+const APP_VERSION = "0.13.0";
+const SCHEMA_VERSION = 9;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
 const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings", "calendar"];
@@ -57,6 +57,7 @@ const LINE_ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
   snow: '<path d="M12 2v20M4.9 7l14.2 10M19.1 7L4.9 17"/>',
   walk: '<circle cx="13" cy="4" r="2"/><path d="M10 22l2-6-3-3 1-5 4 3 3 1M9 13l-3 3"/>',
+  pray: '<path d="M12 3c-1.6 2-3 4.6-3 7.5V15l-3 3v3h6V9.5"/><path d="M12 3c1.6 2 3 4.6 3 7.5V15l3 3v3h-6"/>',
   // Used elsewhere in the UI (not offered in the habit picker)
   band: '<path d="M2 12c1.7-3.3 3.3-3.3 5 0s3.3 3.3 5 0 3.3-3.3 5 0 3.3 3.3 5 0"/>',
   hold: '<path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2"/>',
@@ -65,7 +66,7 @@ const LINE_ICONS = {
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
   note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/>'
 };
-const HABIT_ICON_CHOICES = ["bed", "sunrise", "heart", "pill", "news", "pulse", "dumbbell", "moon", "pen", "book", "drop", "leaf", "smile", "sun", "snow", "walk"];
+const HABIT_ICON_CHOICES = ["bed", "sunrise", "heart", "pray", "pill", "news", "pulse", "dumbbell", "moon", "pen", "book", "drop", "leaf", "smile", "sun", "snow", "walk"];
 // Older versions stored emoji; the v7 upgrade maps them to line icons.
 const EMOJI_TO_ICON = {
   "🛏️": "bed", "🌅": "sunrise", "🙏": "heart", "💊": "pill", "📰": "news", "🩹": "pulse", "🏋️": "dumbbell",
@@ -207,7 +208,8 @@ const HABIT_DEFS = [
   { key: "session", name: "Today's training session", icon: "dumbbell" },
   { key: "supps-pm", name: "Evening supplements", icon: "moon" },
   { key: "journal", name: "Journaling", icon: "pen" },
-  { key: "book", name: "Read 1 page of a book", icon: "book" }
+  { key: "book", name: "Read 1 page of a book", icon: "book" },
+  { key: "pray", name: "Pray", icon: "pray" }
 ];
 
 function newHabit(def, now = new Date().toISOString()) {
@@ -369,6 +371,20 @@ const MIGRATIONS = {
     const morning = routines.find((r) => r.id === "morning");
     if (morning && morning.name === "Morning") morning.name = "Morning mobility";
     d.schemaVersion = 8;
+  },
+  // v8 → v9: "Pray" added as the last habit (a same-named habit you made is reused).
+  8: (d) => {
+    if (!Array.isArray(d.habits)) d.habits = [];
+    if (!d.habits.some((h) => h.key === "pray")) {
+      const same = d.habits.find((h) => !h.key && String(h.name).trim().toLowerCase() === "pray");
+      if (same) {
+        same.key = "pray";
+        d.habits = [...d.habits.filter((h) => h !== same), same];
+      } else {
+        d.habits.push(newHabit(HABIT_DEFS.find((def) => def.key === "pray")));
+      }
+    }
+    d.schemaVersion = 9;
   }
 };
 
