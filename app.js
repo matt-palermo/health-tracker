@@ -29,8 +29,8 @@
 "use strict";
 
 /* ---------- 1. Constants ---------- */
-const APP_VERSION = "0.13.0";
-const SCHEMA_VERSION = 9;
+const APP_VERSION = "0.14.0";
+const SCHEMA_VERSION = 10;
 const STORAGE_KEY = "tracker.v1";
 const SAFETY_KEY = "tracker.v1.safety";   // copy of the data taken right before an import or reset
 const TABS = ["today", "habits", "routines", "timer", "lifts", "rehab", "notes", "settings", "calendar"];
@@ -385,6 +385,24 @@ const MIGRATIONS = {
       }
     }
     d.schemaVersion = 9;
+  },
+  // v9 → v10: new Upper lift list (the session Matt logged on 2026-10-04).
+  // Only applied if Upper still has the original lifts, so in-app edits are
+  // never overwritten. Exercises that carry over keep their IDs (and ticks).
+  9: (d) => {
+    const ORIGINAL_UPPER = ["lat pulldowns", "seated rows", "push-ups", "lateral raises", "trap/scapula raises", "biceps", "triceps (cable)"];
+    const upper = (d.routines || []).find((r) => r.id === "upper");
+    const lifts = upper && (upper.sections || []).find((s) => s.items.some((i) => i.type === "lift"));
+    const names = lifts ? lifts.items.map((i) => String(i.name).trim().toLowerCase()) : [];
+    if (lifts && names.join("|") === ORIGINAL_UPPER.join("|")) {
+      const def = DEFAULT_ROUTINES.find((r) => r.id === "upper").sections.find((s) => s.items.some((i) => i.type === "lift"));
+      lifts.items = def.items.map((item) => {
+        const old = lifts.items.find((i) => i.name.trim().toLowerCase() === item.name.toLowerCase());
+        return { id: old ? old.id : uid(), ...clone(item) };
+      });
+      upper.updatedAt = new Date().toISOString();
+    }
+    d.schemaVersion = 10;
   }
 };
 

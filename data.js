@@ -63,12 +63,15 @@ const DEFAULT_ROUTINES = [
         title: "Lifts",
         items: [
           { name: "Lat pulldowns", type: "lift", dose: "", cue: "" },
-          { name: "Seated rows", type: "lift", dose: "", cue: "" },
-          { name: "Push-ups", type: "lift", dose: "", cue: "Only push movement for now while the shoulder recovers." },
+          { name: "Push-ups", type: "lift", dose: "", cue: "" },
+          { name: "Chest-Supported Rows", type: "lift", dose: "", cue: "" },
+          { name: "Chest Fly", type: "lift", dose: "", cue: "" },
           { name: "Lateral raises", type: "lift", dose: "", cue: "" },
-          { name: "Trap/scapula raises", type: "lift", dose: "", cue: "" },
-          { name: "Biceps", type: "lift", dose: "", cue: "" },
-          { name: "Triceps (cable)", type: "lift", dose: "", cue: "" }
+          { name: "Seated Bicep Curls", type: "lift", dose: "", cue: "" },
+          { name: "Overhead Tricep Extension", type: "lift", dose: "", cue: "" },
+          { name: "Hammer Curls", type: "lift", dose: "", cue: "" },
+          { name: "Tricep Push Down", type: "lift", dose: "", cue: "" },
+          { name: "Kelso Shrugs", type: "lift", dose: "", cue: "" }
         ]
       }
     ]
